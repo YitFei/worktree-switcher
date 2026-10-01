@@ -1,0 +1,22 @@
+{
+  "name": "wts",
+  "version": "0.1.0",
+  "description": "Switch which git worktree owns a repo's fixed dev-server ports",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "wts": "dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc && node --test \"dist/test/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
