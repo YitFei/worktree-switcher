@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Creates a demo repo with two worktrees that serve the same ports:
-#   <target>/main  (main checkout)   <target>/red  (red button)   <target>/blue  (blue button)
-# Services: web :4173 (page) and api :4241 (JSON). No npm install needed.
-# Usage: examples/make-demo.sh <target-dir>
+# Creates a demo repo whose services use fixed ports: web :4173 (page with a gray button) and
+# api :4241 (JSON). No npm install needed. The repo is created at <target>/main.
+# With --with-worktrees it also adds worktrees <target>/red and <target>/blue (button colours);
+# without it, create the worktrees yourself (e.g. in Orca) and change COLOR in web.js.
+# Usage: examples/make-demo.sh <target-dir> [--with-worktrees]
 set -euo pipefail
-target="${1:?usage: make-demo.sh <target-dir>}"
+target="${1:?usage: make-demo.sh <target-dir> [--with-worktrees]}"
+with_worktrees="${2:-}"
 [ -e "$target" ] && { echo "$target already exists" >&2; exit 1; }
 mkdir -p "$target/main" && cd "$target/main"
 git init -q -b main
@@ -48,6 +50,7 @@ cat > wts.json <<'EOF'
 EOF
 git add -A && git commit -q -m "demo base (gray button)"
 
+[ "$with_worktrees" = "--with-worktrees" ] || { git worktree list; exit 0; }
 for color in red blue; do
   git worktree add -q -b "$color" "../$color"
   sed -i "s/const COLOR = \"gray\"/const COLOR = \"$color\"/" "../$color/web.js"
