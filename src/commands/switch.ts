@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { WtsError } from "../errors.js";
 import { attribute, describe, isAlive, samePath } from "../owner.js";
 import { snapshot } from "../platform/win.js";
@@ -9,6 +10,7 @@ import { inspect, label, ports, sleep, type CtxWithConfig } from "../context.js"
 import { tail } from "./logs.js";
 import { stopOwned } from "./stop.js";
 
+const RUNNER = fileURLToPath(new URL("../runner.js", import.meta.url));
 const POLL_MS = 1000;
 const TAIL_LINES = 40;
 
@@ -51,11 +53,9 @@ function start(ctx: CtxWithConfig): State {
 
     const log = ctx.store.logPath(name);
     fs.writeFileSync(log, `# wts ${new Date().toISOString()} ${cwd}> ${svc.cmd}\n`);
-    const fd = fs.openSync(log, "a");
-    const child = spawn(svc.cmd, { cwd, shell: true, detached: true, windowsHide: true, stdio: ["ignore", fd, fd] });
+    const child = spawn(process.execPath, [RUNNER, log, svc.cmd], { cwd, detached: true, windowsHide: true, stdio: "ignore" });
     child.on("error", () => {}); // surfaced by the readiness check instead
     child.unref();
-    fs.closeSync(fd);
     if (!child.pid) throw new WtsError(`failed to start ${name}: ${svc.cmd}`);
     console.log(`started ${name}: ${svc.cmd} (pid ${child.pid}, log ${log})`);
     services[name] = { pid: child.pid, created: 0, port: svc.port };
