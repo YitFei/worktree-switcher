@@ -35,6 +35,7 @@ export class Tray {
   constructor() {
     const dir = path.join(os.homedir(), ".wts");
     fs.mkdirSync(dir, { recursive: true });
+    removeStaleFiles(dir);
     this.stateFile = path.join(dir, `tray-${process.pid}-state.json`);
     this.cmdFile = path.join(dir, `tray-${process.pid}-cmd.json`);
   }
@@ -85,6 +86,23 @@ export class Tray {
     } catch {
       return null; // half-written; next tick
     }
+  }
+}
+
+/** A watch that was killed (not stopped) cannot clean up its tray files; do it for it. */
+function removeStaleFiles(dir: string): void {
+  for (const name of fs.readdirSync(dir)) {
+    const m = /^tray-(\d+)-(state|cmd)\.json(\.tmp)?$/.exec(name);
+    if (m && !isRunning(Number(m[1]))) fs.rmSync(path.join(dir, name), { force: true });
+  }
+}
+
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
   }
 }
 
