@@ -7,6 +7,8 @@ import { switchTo } from "./commands/switch.js";
 import { stop } from "./commands/stop.js";
 import { logs } from "./commands/logs.js";
 import { lock, unlock } from "./commands/lock.js";
+import { watch } from "./commands/watch.js";
+import { focus } from "./commands/focus.js";
 
 const USAGE = `wts — switch which git worktree owns the repo's dev-server ports
 
@@ -17,6 +19,9 @@ Usage (run inside any worktree that has a wts.json):
   wts logs [service] [-n 50] [-f]
   wts lock [--note "..."] [--force]
   wts unlock [--force]
+  wts watch [--orca] [--delay 3] [--orca-db <file>]
+                                 follow the worktree you are looking at and switch to it
+  wts focus [path]               tell a running \`wts watch\` which worktree you are on
 
 --force overrides a lock held by another worktree. Processes that cannot be attributed
 to a worktree of this repo are never killed.`;
@@ -31,6 +36,9 @@ async function main(argv: string[]): Promise<void> {
       n: { type: "string", short: "n", default: "50" },
       follow: { type: "boolean", short: "f", default: false },
       help: { type: "boolean", short: "h", default: false },
+      orca: { type: "boolean", default: false },
+      "orca-db": { type: "string" },
+      delay: { type: "string", default: "3" },
     },
   });
   const [command, arg] = positionals;
@@ -57,6 +65,13 @@ async function main(argv: string[]): Promise<void> {
       return lock(loadContext(cwd), values.note, values.force);
     case "unlock":
       return unlock(loadContext(cwd), values.force);
+    case "watch": {
+      const delaySec = Number(values.delay);
+      if (!Number.isFinite(delaySec) || delaySec < 0) throw new WtsError("--delay must be a non-negative number", 2);
+      return watch({ orca: values.orca, orcaDb: values["orca-db"], delaySec });
+    }
+    case "focus":
+      return focus(arg ?? cwd);
     default:
       throw new WtsError(`unknown command "${command}"\n\n${USAGE}`, 2);
   }
