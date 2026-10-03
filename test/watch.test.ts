@@ -38,3 +38,11 @@ test("Debouncer: clicking through quickly only emits the last value", () => {
   assert.equal(d.update("a", 8000), "a"); // back to a is a new settle
   assert.equal(d.update(null, 9000), null);
 });
+
+test("tray tooltip is cut to the 63-character NotifyIcon limit", async () => {
+  const { fitTooltip } = await import("../src/platform/tray.js");
+  assert.equal(fitTooltip("wts: demo1 · :4173 :4241"), "wts: demo1 · :4173 :4241");
+  const long = fitTooltip("x".repeat(100));
+  assert.equal(long.length, 63);
+  assert.ok(long.endsWith("…"));
+});

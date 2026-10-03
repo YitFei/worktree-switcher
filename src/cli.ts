@@ -19,8 +19,9 @@ Usage (run inside any worktree that has a wts.json):
   wts logs [service] [-n 50] [-f]
   wts lock [--note "..."] [--force]
   wts unlock [--force]
-  wts watch [--orca] [--delay 3] [--orca-db <file>]
-                                 follow the worktree you are looking at and switch to it
+  wts watch [--orca] [--delay 3] [--orca-db <file>] [--no-tray]
+                                 follow the worktree you are looking at and switch to it;
+                                 shows a tray icon (hover = who runs, right-click = menu)
   wts focus [path]               tell a running \`wts watch\` which worktree you are on
 
 --force overrides a lock held by another worktree. Processes that cannot be attributed
@@ -39,6 +40,7 @@ async function main(argv: string[]): Promise<void> {
       orca: { type: "boolean", default: false },
       "orca-db": { type: "string" },
       delay: { type: "string", default: "3" },
+      "no-tray": { type: "boolean", default: false },
     },
   });
   const [command, arg] = positionals;
@@ -68,7 +70,7 @@ async function main(argv: string[]): Promise<void> {
     case "watch": {
       const delaySec = Number(values.delay);
       if (!Number.isFinite(delaySec) || delaySec < 0) throw new WtsError("--delay must be a non-negative number", 2);
-      return watch({ orca: values.orca, orcaDb: values["orca-db"], delaySec });
+      return watch({ orca: values.orca, orcaDb: values["orca-db"], delaySec, tray: !values["no-tray"] });
     }
     case "focus":
       return focus(arg ?? cwd);

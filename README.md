@@ -35,8 +35,25 @@ equivalent so a busy port fails instead of silently moving.
 | `wts stop [--force]` | Stop services that belong to worktrees of this repo |
 | `wts logs [service] [-n 50] [-f]` | Show / follow service logs |
 | `wts lock [--note "..."]` / `wts unlock` | Block other worktrees (agents) from `switch`/`stop` |
+| `wts watch [--orca] [--delay 3] [--no-tray]` | Follow the worktree you are looking at and switch to it (see below) |
+| `wts focus [path]` | Tell a running `wts watch` which worktree you are on (for editor integrations) |
 
 `--force` only overrides another worktree's lock. Exit codes: `0` ok, `1` failure, `2` refused.
+
+## Auto-switch: `wts watch`
+
+`wts watch` switches the dev servers to the worktree you are looking at, once you stay on it for
+`--delay` seconds (default 3). Worktrees without `wts.json` are ignored; locks are respected.
+
+Focus sources:
+- `wts focus <path>` — generic; a VS Code extension or any script can call it.
+- `--orca` — the workspace selected in Orca, read from Orca's local state DB
+  (`%APPDATA%\orca\profiles\local-default\profile-state.db`). This is Orca's internal format,
+  not a public API, and may break with an Orca update.
+
+Tray icon (Windows): green = running, yellow = switching, red = port held by another program or
+error, gray = stopped. Hover shows who runs and the lock; right-click lists the repo's worktrees
+(click to switch), Lock/Unlock, Stop and Exit. `--no-tray` disables it.
 
 ## Safety rules
 
