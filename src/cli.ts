@@ -19,9 +19,9 @@ Usage (run inside any worktree that has a wts.json):
   wts logs [service] [-n 50] [-f]
   wts lock [--note "..."] [--force]
   wts unlock [--force]
-  wts watch [--orca] [--delay 3] [--orca-db <file>] [--no-tray]
+  wts watch [--orca] [--delay 3] [--orca-db <file>] [--ui float|tray|none]
                                  follow the worktree you are looking at and switch to it;
-                                 shows a tray icon (hover = who runs, right-click = menu)
+                                 shows a floating button (hover = status, click = menu)
   wts focus [path]               tell a running \`wts watch\` which worktree you are on
 
 --force overrides a lock held by another worktree. Processes that cannot be attributed
@@ -40,6 +40,7 @@ async function main(argv: string[]): Promise<void> {
       orca: { type: "boolean", default: false },
       "orca-db": { type: "string" },
       delay: { type: "string", default: "3" },
+      ui: { type: "string", default: "float" },
       "no-tray": { type: "boolean", default: false },
     },
   });
@@ -70,7 +71,9 @@ async function main(argv: string[]): Promise<void> {
     case "watch": {
       const delaySec = Number(values.delay);
       if (!Number.isFinite(delaySec) || delaySec < 0) throw new WtsError("--delay must be a non-negative number", 2);
-      return watch({ orca: values.orca, orcaDb: values["orca-db"], delaySec, tray: !values["no-tray"] });
+      const ui = values["no-tray"] ? "none" : values.ui;
+      if (ui !== "float" && ui !== "tray" && ui !== "none") throw new WtsError("--ui must be float, tray or none", 2);
+      return watch({ orca: values.orca, orcaDb: values["orca-db"], delaySec, ui });
     }
     case "focus":
       return focus(arg ?? cwd);

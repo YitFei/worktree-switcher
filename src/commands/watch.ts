@@ -6,7 +6,7 @@ import { readFocus } from "../focus/file.js";
 import { defaultOrcaDb, orcaReader } from "../focus/orca.js";
 import { normPath } from "../owner.js";
 import { snapshot } from "../platform/win.js";
-import { Tray, type TrayCommand, type TrayState } from "../platform/tray.js";
+import { Widget, type WidgetCommand, type WidgetKind, type WidgetState } from "../platform/widget.js";
 import { lock, unlock } from "./lock.js";
 import { stop } from "./stop.js";
 import { switchTo } from "./switch.js";
@@ -18,7 +18,8 @@ export interface WatchOptions {
   orca: boolean;
   orcaDb?: string;
   delaySec: number;
-  tray: boolean;
+  /** On-screen status: floating button, tray icon, or nothing. */
+  ui: WidgetKind | "none";
 }
 
 interface Source {
@@ -56,8 +57,8 @@ export async function watch(opts: WatchOptions): Promise<void> {
   if (opts.orca) sources.push({ name: "orca", read: await orcaReader(opts.orcaDb ?? defaultOrcaDb()) });
   console.log(`watching ${sources.map((s) => s.name).join(" + ")}; switch after ${opts.delaySec}s on the same worktree; Ctrl+C to stop`);
 
-  const w = new Watcher(opts.tray ? new Tray() : null);
-  w.startTray();
+  const w = new Watcher(opts.ui === "none" ? null : new Widget(opts.ui));
+  w.startWidget();
 
   const last = new Map<string, string | null>();
   const debouncer = new Debouncer(opts.delaySec * 1000);
@@ -82,49 +83,49 @@ export async function watch(opts: WatchOptions): Promise<void> {
   }
 }
 
-/** Executes switches and tray commands one at a time and keeps the tray up to date. */
+/** Executes switches and widget commands one at a time and keeps the widget up to date. */
 class Watcher {
-  /** Last repo (worktree with wts.json) the user focused; drives the tray menu. */
+  /** Last repo (worktree with wts.json) the user focused; drives the widget menu. */
   private repo: CtxWithConfig | null = null;
   private readonly ignored = new Set<string>();
   private lastRefresh = 0;
   private notifyId = 0;
   private owner: string | null = null;
 
-  constructor(private readonly tray: Tray | null) {
+  constructor(private readonly widget: Widget | null) {
     try {
       this.repo = loadContextWithConfig(process.cwd());
     } catch {
-      // started outside a configured worktree; the tray waits for the first focus
+      // started outside a configured worktree; the widget waits for the first focus
     }
   }
 
-  startTray(): void {
-    if (!this.tray) return;
-    this.tray.start({ tooltip: "wts: starting…", color: "gray", locked: false, worktrees: [] });
+  startWidget(): void {
+    if (!this.widget) return;
+    this.widget.start({ label: "starting…", tooltip: "wts: starting…", color: "gray", locked: false, worktrees: [] });
     this.refresh();
   }
 
-  /** Called every poll: handle tray clicks, refresh the tray now and then. */
+  /** Called every poll: handle widget clicks, refresh the widget now and then. */
   async tick(): Promise<void> {
-    const cmd = this.tray?.takeCommand();
+    const cmd = this.widget?.takeCommand();
     if (cmd) await this.run(cmd);
     if (Date.now() - this.lastRefresh > TRAY_REFRESH_MS) this.refresh();
   }
 
-  async switchTo(worktree: string, fromTray: boolean): Promise<void> {
+  async switchTo(worktree: string, fromWidget: boolean): Promise<void> {
     let ctx: CtxWithConfig;
     try {
       ctx = loadContextWithConfig(worktree);
     } catch (e) {
       const key = normPath(worktree);
-      if (fromTray || !this.ignored.has(key)) console.log(`ignoring ${worktree}: ${(e as Error).message}`);
+      if (fromWidget || !this.ignored.has(key)) console.log(`ignoring ${worktree}: ${(e as Error).message}`);
       this.ignored.add(key);
       return;
     }
     this.repo = ctx;
     console.log(`focus on ${label(ctx.current, ctx.current)}`);
-    this.refresh("switching", `switching to ${path.basename(ctx.current)}…`);
+    this.refresh("switching", `→ ${path.basename(ctx.current)}…`);
     try {
       await switchTo(ctx, false);
       this.refresh();
@@ -134,31 +135,31 @@ class Watcher {
     }
   }
 
-  private async run(cmd: TrayCommand): Promise<void> {
-    console.log(`tray: ${cmd.action}${cmd.action === "switch" ? ` ${cmd.path}` : ""}`);
+  private async run(cmd: WidgetCommand): Promise<void> {
+    console.log(`widget: ${cmd.action}${cmd.action === "switch" ? ` ${cmd.path}` : ""}`);
     if (cmd.action === "exit") process.exit(0);
     if (cmd.action === "switch") return this.switchTo(cmd.path, true);
     if (!this.repo) return;
-    // Act as the running worktree, so its own lock never blocks Lock/Stop from the tray.
+    // Act as the running worktree, so its own lock never blocks Lock/Stop from the widget.
     const where = this.owner ?? this.repo.current;
     try {
-      if (cmd.action === "lock") lock(loadContext(where), "locked from tray", false);
+      if (cmd.action === "lock") lock(loadContext(where), "locked from wts watch", false);
       if (cmd.action === "unlock") unlock(loadContext(where), true);
       if (cmd.action === "stop") await stop(loadContextWithConfig(where), false);
       this.refresh();
     } catch (e) {
-      console.log(`tray ${cmd.action} failed: ${(e as Error).message}`);
+      console.log(`widget ${cmd.action} failed: ${(e as Error).message}`);
       this.refresh(undefined, undefined, { title: `wts: ${cmd.action} failed`, text: (e as Error).message });
     }
   }
 
-  /** Recompute the tray from the real port owners (a PowerShell query, ~1 s). */
+  /** Recompute the widget from the real port owners (a PowerShell query, ~1 s). */
   private refresh(phase?: "switching", text?: string, notify?: { title: string; text: string }): void {
     this.lastRefresh = Date.now();
-    if (!this.tray) return;
+    if (!this.widget) return;
     const n = notify ? { id: ++this.notifyId, ...notify } : undefined;
     if (!this.repo) {
-      this.tray.update({ tooltip: "wts: waiting for a worktree with wts.json", color: "gray", locked: false, worktrees: [], notify: n });
+      this.widget.update({ label: "waiting", tooltip: "wts: waiting for a worktree with wts.json", color: "gray", locked: false, worktrees: [], notify: n });
       return;
     }
     try {
@@ -166,10 +167,10 @@ class Watcher {
     } catch {
       // keep the previous context
     }
-    this.tray.update({ ...this.state(this.repo, phase, text), notify: n });
+    this.widget.update({ ...this.state(this.repo, phase, text), notify: n });
   }
 
-  private state(repo: CtxWithConfig, phase?: "switching", text?: string): TrayState {
+  private state(repo: CtxWithConfig, phase?: "switching", text?: string): WidgetState {
     const portList = ports(repo).map((p) => `:${p}`).join(" ");
     const snap = snapshot(ports(repo));
     const statuses = inspect(repo, snap.listeners, snap.procs, repo.store.readState());
@@ -184,14 +185,17 @@ class Watcher {
       .map((wt) => ({ name: path.basename(wt), path: wt, active: !!ownerPath && normPath(wt) === normPath(ownerPath) }));
     const locked = lockInfo ? ` · locked by ${path.basename(lockInfo.worktree)}` : "";
 
-    if (phase === "switching") return { tooltip: `wts: ${text}`, color: "yellow", locked: !!lockInfo, worktrees };
+    const lockMark = lockInfo ? " 🔒" : "";
+    const base = { locked: !!lockInfo, worktrees };
+    if (phase === "switching") return { ...base, label: text ?? "switching…", tooltip: `wts: ${text}`, color: "yellow" };
     if (unknown.length > 0) {
-      return { tooltip: `wts: ${unknown.map((s) => `:${s.port}`).join(" ")} held by another program`, color: "red", locked: !!lockInfo, worktrees };
+      const busy = unknown.map((s) => `:${s.port}`).join(" ");
+      return { ...base, label: `${busy} busy`, tooltip: `wts: ${busy} held by another program`, color: "red" };
     }
-    if (owners.length === 0) return { tooltip: `wts: stopped${locked} · ${portList}`, color: "gray", locked: !!lockInfo, worktrees };
+    if (owners.length === 0) return { ...base, label: `stopped${lockMark}`, tooltip: `wts: stopped${locked} · ${portList}`, color: "gray" };
     const complete = owners.length === 1 && statuses.every((s) => s.pid !== null);
     const name = owners.length === 1 ? path.basename(ownerPath!) : "mixed worktrees";
-    return { tooltip: `wts: ${name}${locked} · ${portList}`, color: complete ? "green" : "red", locked: !!lockInfo, worktrees };
+    return { ...base, label: `${name}${lockMark}`, tooltip: `wts: ${name}${locked} · ${portList}`, color: complete ? "green" : "red" };
   }
 }
 
