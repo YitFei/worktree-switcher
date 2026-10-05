@@ -1,19 +1,37 @@
-# wts demo: one button, several worktrees
+# Demo: one button, several worktrees
 
-This repo is its own demo. Two tiny servers live in `examples/demo` (no dependencies, Node only):
+This repository is its own demo. Two tiny servers live in `examples/demo` — Node only, no
+dependencies:
 
 | service | fixed port | shows |
 |---|---|---|
-| `web` (`web.cjs`) | 4173 | a button in the worktree's own colour, named after the worktree |
+| `web` (`web.cjs`) | 4173 | a button in the worktree's own colour, labelled with the worktree's name |
 | `api` (`api.cjs`) | 4241 | JSON with the worktree it was started from |
 
-A git worktree is a copy of the whole repo, so every worktree of this repo is a demo worktree.
-Each one picks its button colour from its folder name, so two worktrees look different with no
-setup. Like Vite, each server takes the first free port from its fixed port upward.
+A git worktree is a full copy of the repository, so **every worktree of this repo is a demo
+worktree**. Each one picks its button colour from its folder name, so two worktrees look
+different without any setup. Like Vite, each server takes the first free port from its fixed port
+upward, so the same files work in both modes.
 
-## Quick start (proxy mode: you run the servers, wts forwards)
+## Run mode (the root `wts.json`) — wts starts and stops the servers
 
-The root `wts.json` is in proxy mode:
+```sh
+git clone https://github.com/YitFei/worktree-switcher.git wts && cd wts
+npm install && npm run build && npm link      # makes `wts` available
+
+git worktree add ../wts-a
+git worktree add ../wts-b
+
+cd ../wts-a && wts switch    # open http://localhost:4173 — a button labelled "wts-a"
+cd ../wts-b && wts switch    # refresh — "wts-b" in another colour; wts-a's servers were stopped
+wts status                   # who runs each port
+wts restart                  # stop and start wts-b's servers again
+wts stop                     # free both ports
+```
+
+## Proxy mode — you run the servers, wts forwards
+
+Replace the root `wts.json` in each worktree with:
 
 ```json
 {
@@ -26,52 +44,23 @@ The root `wts.json` is in proxy mode:
 ```
 
 ```sh
-git clone <this repo> wts && cd wts
-npm install && npm run build && npm link     # makes `wts` available
-git worktree add ../wts-a
-git worktree add ../wts-b
+wts watch                                    # terminal 1: the floating button + the proxy on 4173 / 4241
 
-wts proxy                                    # terminal 1: holds 4173 / 4241, keep it open
+cd ../wts-a && wts port                      # which ports wts-a should use, and the commands
+cd ../wts-a/examples/demo && node web.cjs    # takes 4174 (4173 is held by the proxy)
+cd ../wts-a/examples/demo && node api.cjs    # takes 4242
+cd ../wts-b/examples/demo && node web.cjs    # 4175
+cd ../wts-b/examples/demo && node api.cjs    # 4243
 
-cd ../wts-a/examples/demo && node web.cjs    # terminal 2: takes 4174 (4173 is held by the proxy)
-cd ../wts-a/examples/demo && node api.cjs    # terminal 3: takes 4242
-cd ../wts-b/examples/demo && node web.cjs    # terminal 4: 4175
-cd ../wts-b/examples/demo && node api.cjs    # terminal 5: 4243
-
-cd ../wts-a && wts switch    # http://localhost:4173 shows wts-a, instantly, nothing stopped
+cd ../wts-a && wts switch    # http://localhost:4173 shows wts-a — instantly, nothing stopped
 cd ../wts-b && wts switch    # refresh: wts-b; wts-a's servers keep running
-wts status                   # every worktree's ports, and which one is selected
+wts status                   # every worktree's ports and which one is selected
 ```
 
-Stop wts-b's `web.cjs` and refresh: the proxy shows a page saying which server to start.
+Stop wts-b's `web.cjs` and refresh: the proxy answers with a page saying which server to start.
 
 ## Simulate real work
 
-In one worktree, change the code: set `const COLOR = "red";` in `examples/demo/web.cjs` (or ask an
-agent to), restart that worktree's `web.cjs`, and refresh: the page shows that worktree's change,
-the other worktree keeps its own code.
-
-## Run mode: wts starts and stops the servers
-
-Replace the root `wts.json` with
-
-```json
-{
-  "readyTimeoutSec": 30,
-  "services": {
-    "api": { "dir": "examples/demo", "port": 4241, "cmd": "node api.cjs" },
-    "web": { "dir": "examples/demo", "port": 4173, "cmd": "node web.cjs" }
-  }
-}
-```
-
-and just run `wts switch` in a worktree: it stops the other worktree's servers and starts this
-one's on 4173 / 4241. Only one worktree runs at a time.
-
-## Then
-
-- **Auto-switch**: `wts watch` (add `--orca` in Orca) follows the worktree you are looking at,
-  runs the proxy for proxy-mode repos, and shows a floating button with the selected worktree.
-- **Lock**: `wts lock` in the worktree you are testing; `wts switch` elsewhere is refused.
-- **Agents**: register `wts mcp` and the `wts hook` guard (see the root README); then ask an agent
-  in one worktree to "run the app".
+In one worktree change the code — set `const COLOR = "red";` in `examples/demo/web.cjs`, or ask
+an agent to — then `wts restart` (run mode) or restart that worktree's `web.cjs` (proxy mode).
+The page shows that worktree's change; the other worktree keeps its own code.

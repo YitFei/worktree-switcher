@@ -1,2 +1,6 @@
 node_modules/
 dist/
+
+# Local notes (not published)
+Handoff.md
+.claude/

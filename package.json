@@ -1,26 +1,64 @@
 {
-  "name": "wts",
+  "name": "worktree-switcher",
   "version": "0.1.0",
-  "description": "Switch which git worktree owns a repo's fixed dev-server ports",
-  "private": true,
+  "description": "Run many git worktrees of one app on the same fixed dev ports: switch which worktree serves them (or proxy the ports to it), with a floating button and an MCP server for coding agents. Windows.",
+  "keywords": [
+    "git",
+    "worktree",
+    "git-worktree",
+    "dev-server",
+    "ports",
+    "proxy",
+    "vite",
+    "dotnet",
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "codex",
+    "orca",
+    "ai-agents",
+    "windows"
+  ],
+  "license": "MIT",
+  "author": "Yif",
+  "homepage": "https://github.com/YitFei/worktree-switcher#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YitFei/worktree-switcher.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YitFei/worktree-switcher/issues"
+  },
   "type": "module",
   "bin": {
     "wts": "dist/src/cli.js"
   },
-  "scripts": {
-    "build": "tsc",
-    "typecheck": "tsc --noEmit",
-    "test": "tsc && node --test \"dist/test/**/*.test.js\""
-  },
+  "files": [
+    "dist/src",
+    "docs",
+    "examples",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "os": [
+    "win32"
+  ],
   "engines": {
     "node": ">=22"
   },
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "typescript": "^5.6.0"
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc && node --test \"dist/test/**/*.test.js\"",
+    "prepublishOnly": "npm test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.0",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
   }
 }
