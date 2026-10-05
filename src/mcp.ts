@@ -12,6 +12,7 @@ import { status } from "./commands/status.js";
 import { switchTo } from "./commands/switch.js";
 import { stop } from "./commands/stop.js";
 import { tail } from "./commands/logs.js";
+import { discover, portOf } from "./discover.js";
 
 export const INSTRUCTIONS = `wts manages the dev servers of repos that have a wts.json: the ports are fixed and only one
 worktree of a repo runs them at a time. In such a repo:
@@ -42,6 +43,25 @@ export function createServer(cwd = process.cwd()): McpServer {
     },
     ({ path }) =>
       run(where(path), async (ctx) => {
+        if (ctx.config.mode === "proxy") {
+          await status(ctx);
+          const selected = ctx.store.readState()?.owner ?? null;
+          const found = await discover(ctx.config.services, ctx.worktrees);
+          return {
+            mode: "proxy",
+            worktree: ctx.current,
+            selected,
+            selectedIsYou: !!selected && samePath(selected, ctx.current),
+            lock: ctx.store.readLock(),
+            services: Object.entries(ctx.config.services).map(([service, svc]) => ({
+              service,
+              fixedPort: svc.port,
+              targets: `${svc.targets!.from}-${svc.targets!.to}`,
+              yourPort: portOf(found, service, ctx.current),
+              running: found.filter((f) => f.service === service).map((f) => ({ worktree: f.worktree, port: f.port })),
+            })),
+          };
+        }
         const snap = snapshot(ports(ctx));
         const statuses = inspect(ctx, snap.listeners, snap.procs, ctx.store.readState());
         await status(ctx);
