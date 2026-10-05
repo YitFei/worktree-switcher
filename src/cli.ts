@@ -10,6 +10,7 @@ import { lock, unlock } from "./commands/lock.js";
 import { watch } from "./commands/watch.js";
 import { focus } from "./commands/focus.js";
 import { serveMcp } from "./mcp.js";
+import { runHook } from "./hook.js";
 
 const USAGE = `wts — switch which git worktree owns the repo's dev-server ports
 
@@ -25,6 +26,7 @@ Usage (run inside any worktree that has a wts.json):
                                  shows a floating button (hover = status, click = menu)
   wts focus [path]               tell a running \`wts watch\` which worktree you are on
   wts mcp                        MCP server (stdio) for coding agents
+  wts hook                       Claude Code PreToolUse guard (reads the event on stdin)
 
 --force overrides a lock held by another worktree. Processes that cannot be attributed
 to a worktree of this repo are never killed.`;
@@ -81,6 +83,9 @@ async function main(argv: string[]): Promise<void> {
       return focus(arg ?? cwd);
     case "mcp":
       return serveMcp();
+    case "hook":
+      process.exitCode = await runHook();
+      return;
     default:
       throw new WtsError(`unknown command "${command}"\n\n${USAGE}`, 2);
   }

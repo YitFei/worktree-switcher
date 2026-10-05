@@ -1,0 +1,7 @@
+{
+  "readyTimeoutSec": 30,
+  "services": {
+    "api": { "dir": "examples/demo", "port": 4241, "cmd": "node api.cjs" },
+    "web": { "dir": "examples/demo", "port": 4173, "cmd": "node web.cjs" }
+  }
+}
