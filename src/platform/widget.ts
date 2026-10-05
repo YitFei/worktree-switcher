@@ -31,7 +31,12 @@ export interface MenuProject {
   name: string;
   /** Main checkout path (header tooltip). */
   path: string;
-  worktrees: { name: string; path: string; active: boolean }[];
+  /** "run" / "proxy", shown in the header. */
+  mode?: string;
+  /** Route lines for the current project, e.g. ":5273 ──→ :5276  frontend". */
+  routes?: string[];
+  /** ports: this worktree's ports, shown right-aligned (proxy mode). */
+  worktrees: { name: string; path: string; active: boolean; ports?: string }[];
 }
 
 export type WidgetCommand =
@@ -148,17 +153,26 @@ function Send-Cmd($action, $path) {
 function Build-Menu($s) {
   $menu.Items.Clear()
   foreach ($p in $s.projects) {
-    $h = New-Object System.Windows.Forms.ToolStripLabel $p.name
+    $title = if ($p.mode) { $p.name + '  ' + [char]0x00B7 + ' ' + $p.mode } else { $p.name }
+    $h = New-Object System.Windows.Forms.ToolStripLabel $title
     $h.Font = New-Object System.Drawing.Font($menu.Font, [System.Drawing.FontStyle]::Bold)
     $h.ForeColor = [System.Drawing.Color]::FromArgb(110, 110, 110)
     $h.ToolTipText = $p.path
     [void]$menu.Items.Add($h)
+    foreach ($line in @($p.routes)) {
+      if (-not $line) { continue }
+      $l = New-Object System.Windows.Forms.ToolStripLabel ('   ' + $line)
+      $l.Font = New-Object System.Drawing.Font('Consolas', 9)
+      $l.ForeColor = [System.Drawing.Color]::FromArgb(70, 110, 160)
+      [void]$menu.Items.Add($l)
+    }
     foreach ($w in $p.worktrees) {
       $prefix = if ($w.active) { [char]0x25CF + ' ' } else { [char]0x25CB + ' ' }
       $item = $menu.Items.Add('    ' + $prefix + $w.name)
       $item.ToolTipText = $w.path
       $item.Tag = $w.path
       if ($w.active) { $item.Font = New-Object System.Drawing.Font($item.Font, [System.Drawing.FontStyle]::Bold) }
+      if ($w.ports) { $item.ShortcutKeyDisplayString = $w.ports }
       $item.add_Click({ param($sender) Send-Cmd 'switch' $sender.Tag })
     }
   }

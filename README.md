@@ -99,8 +99,10 @@ Focus sources:
   turn off). This is Orca's internal format, not a public API, and may break with an Orca update.
 
 Floating button (Windows, default `--ui float`): an always-on-top pill `( ● demo1 🔒 │ ↻ │ Manual )`.
-- **Name** — click (or right-click anywhere) for the menu: the repo's worktrees (click to switch),
-  Restart, Auto-switch, Lock/Unlock, Stop, Exit. The menu closes when you click elsewhere.
+- **Name** — click (or right-click anywhere) for the menu: worktrees grouped by project (click to
+  switch), the current project's routes (`:5273 ──→ :5276  frontend` in proxy mode, `:5273 ── demo2`
+  in run mode) and each worktree's ports (`:5275?` = assigned, not running yet), then Restart,
+  Auto-switch, Lock/Unlock, Stop, Exit. The menu closes when you click elsewhere.
 - **↻** — run mode: restart the running worktree's servers. Proxy mode: wts did not start your
   servers, so it re-detects them and resets connections; restart a server in its own terminal.
 - **Manual / Auto** — toggle.

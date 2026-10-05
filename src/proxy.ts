@@ -57,6 +57,11 @@ export class Forwarder {
     return ports;
   }
 
+  /** Every worktree's servers from the last discovery (for the menu; no new query). */
+  lastFound(): Found[] {
+    return this.found;
+  }
+
   /** Discover again now (e.g. right after a switch) and wait for it. */
   rediscover(): Promise<void> {
     return this.refresh();

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { CONFIG_FILE } from "../config.js";
+import { CONFIG_FILE, loadConfig } from "../config.js";
 import { inspect, label, loadContext, loadContextWithConfig, ports, sleep, type CtxWithConfig } from "../context.js";
 import { readFocus } from "../focus/file.js";
 import { defaultOrcaDb, orcaReader } from "../focus/orca.js";
@@ -282,7 +282,8 @@ class Watcher {
     const locked = lockInfo ? ` · locked by ${path.basename(lockInfo.worktree)}` : "";
 
     const lockMark = lockInfo ? " 🔒" : "";
-    const base = { locked: !!lockInfo, projects: this.projectsMenu(repo, ownerPath) };
+    const routes = statuses.map((s) => `:${s.port}  ──  ${s.worktree ? path.basename(s.worktree) : s.pid !== null ? "another program" : "stopped"}   ${s.service}`);
+    const base = { locked: !!lockInfo, projects: this.projectsMenu(repo, ownerPath, { routes }) };
     if (phase === "switching") return { ...base, label: text ?? "switching…", tooltip: `wts: ${text}`, color: "yellow" };
     if (unknown.length > 0) {
       const busy = unknown.map((s) => `:${s.port}`).join(" ");
@@ -300,7 +301,25 @@ class Watcher {
     const lockInfo = repo.store.readLock();
     this.owner = selected;
     const proj = projectName(repo);
-    const base = { locked: !!lockInfo, projects: this.projectsMenu(repo, selected) };
+    const fwd = this.proxies.get(repo.store.dir);
+    const found = fwd?.lastFound() ?? [];
+    const assigned = readPortMap(repo.store.dir);
+    const now = selected ? fwd?.portsFor(selected) ?? {} : {};
+    const mine = selected ? portsOf(assigned, selected) : {};
+    const routeLines = Object.entries(repo.config.services).map(([s, svc]) => {
+      const to = !selected ? "(none selected)" : now[s] ? `:${now[s]}` : mine[s] ? `(start on :${mine[s]})` : "(not running)";
+      return `:${svc.port}  ──→  ${to}   ${s}`;
+    });
+    const portsOfWorktree = (wt: string) => {
+      const want = portsOf(assigned, wt);
+      return Object.keys(repo.config.services)
+        .map((s) => {
+          const f = found.find((x) => x.service === s && normPath(x.worktree) === normPath(wt));
+          return f ? `:${f.port}` : want[s] ? `:${want[s]}?` : "-";
+        })
+        .join(" · ");
+    };
+    const base = { locked: !!lockInfo, projects: this.projectsMenu(repo, selected, { routes: routeLines, ports: portsOfWorktree }) };
     const lockMark = lockInfo ? " 🔒" : "";
     const locked = lockInfo ? ` · locked by ${path.basename(lockInfo.worktree)}` : "";
     if (phase === "switching") return { ...base, label: text ?? "switching…", tooltip: `wts: ${text}`, color: "yellow" };
@@ -322,10 +341,14 @@ class Watcher {
    * (~/.wts/repos.json). Only worktrees with a wts.json; Orca's temp folders are skipped. The active
    * mark of other projects comes from their saved state, so this costs only a `git worktree list`.
    */
-  private projectsMenu(repo: CtxWithConfig | null, active: string | null): MenuProject[] {
+  private projectsMenu(
+    repo: CtxWithConfig | null,
+    active: string | null,
+    live: { routes?: string[]; ports?: (worktree: string) => string } = {},
+  ): MenuProject[] {
     const groups: MenuProject[] = [];
     const seen = new Set<string>();
-    const add = (cwd: string, commonDirPath: string, activePath: string | null) => {
+    const add = (cwd: string, commonDirPath: string, activePath: string | null, current: boolean) => {
       const key = normPath(commonDirPath);
       if (seen.has(key)) return;
       seen.add(key);
@@ -342,12 +365,20 @@ class Watcher {
           name: i.main ? `${i.branch ?? "main"} (main)` : path.basename(i.path),
           path: i.path,
           active: !!activePath && normPath(i.path) === normPath(activePath),
+          ...(current && live.ports ? { ports: live.ports(i.path) } : {}),
         }));
-      if (worktrees.length > 0) groups.push({ name: path.basename(main?.path ?? cwd), path: main?.path ?? cwd, worktrees });
+      if (worktrees.length === 0) return;
+      let mode: string | undefined;
+      try {
+        mode = loadConfig(worktrees[0].path).mode;
+      } catch {
+        // leave the header without a mode
+      }
+      groups.push({ name: path.basename(main?.path ?? cwd), path: main?.path ?? cwd, mode, ...(current ? { routes: live.routes } : {}), worktrees });
     };
-    if (repo) add(repo.current, path.dirname(repo.store.dir), active);
+    if (repo) add(repo.current, path.dirname(repo.store.dir), active, true);
     const others = knownRepos().sort((a, b) => path.basename(a.worktree).localeCompare(path.basename(b.worktree)));
-    for (const r of others) add(r.worktree, r.commonDir, savedOwner(r.commonDir));
+    for (const r of others) add(r.worktree, r.commonDir, savedOwner(r.commonDir), false);
     return groups;
   }
 }
