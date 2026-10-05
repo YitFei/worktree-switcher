@@ -22,6 +22,8 @@ http://localhost:5173  ──────┼─▶ worktree fix/upload   (agent 
 - **Safe by default.** wts only stops processes it can prove belong to a worktree of the repo.
   Anything else on a port is reported, never killed.
 
+<p><img src="https://raw.githubusercontent.com/YitFei/worktree-switcher/main/docs/images/menu.png" alt="The wts menu: which worktree serves the fixed ports" width="400"></p>
+
 > Why this exists, in detail: [docs/why.md](docs/why.md). How it works inside:
 > [docs/how-it-works.md](docs/how-it-works.md).
 
@@ -306,9 +308,9 @@ In proxy mode each worktree gets a stable **assigned port** per service, inside 
 
 ## The floating button (`wts watch`)
 
-```
-( ● my-app › feat-login │ ↻ │ Manual )
-```
+<img src="https://raw.githubusercontent.com/YitFei/worktree-switcher/main/docs/images/button.png" alt="The floating button: project › worktree, restart, Manual/Auto" width="420">
+
+<img src="https://raw.githubusercontent.com/YitFei/worktree-switcher/main/docs/images/menu.png" alt="The menu: routes from the fixed ports to the selected worktree, each worktree's ports, settings" width="440">
 
 - **Dot colour:**
   - green: serving;

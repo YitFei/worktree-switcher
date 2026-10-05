@@ -6,6 +6,9 @@ All notable changes are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+- README screenshots of the floating button and its menu (not shipped in the npm package).
+
 ## [0.1.1] - 2026-10-05
 
 ### Added
