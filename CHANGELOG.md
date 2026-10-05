@@ -6,11 +6,17 @@ All notable changes are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-05
+
 ### Added
 - Floating button menu: **Logs ▸** (run mode), one entry per server plus All, each opening a
   terminal window that follows the output live; the server with a problem is shown in red.
   Settings grouped under **Settings ▸**; every item explains itself on hover.
 - README screenshots of the floating button and its menu (not shipped in the npm package).
+
+### Fixed
+- Floating button: clicking an item in a submenu (Logs, Settings) closed the menu before the click
+  took effect.
 
 ## [0.1.1] - 2026-10-05
 
@@ -56,6 +62,7 @@ The first public release. Windows only, Node 22+.
   `--dry-run`, `--no-mcp`, `--no-hook`) and prints the Codex snippet.
 - A demo in `examples/demo`: a Node.js frontend and a Node.js backend, with no dependencies.
 
-[Unreleased]: https://github.com/YitFei/worktree-switcher/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/YitFei/worktree-switcher/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/YitFei/worktree-switcher/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/YitFei/worktree-switcher/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/YitFei/worktree-switcher/releases/tag/v0.1.0
