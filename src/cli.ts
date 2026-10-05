@@ -14,6 +14,7 @@ import { runHook } from "./hook.js";
 import { assignedWithHints, runProxy } from "./commands/select.js";
 import { planPorts } from "./discover.js";
 import { proposeInit, writeInit } from "./init.js";
+import { setup } from "./commands/setup.js";
 
 const USAGE = `wts — switch which git worktree owns the repo's dev-server ports
 
@@ -35,6 +36,8 @@ Usage (run inside any worktree that has a wts.json):
   wts focus [path]               tell a running \`wts watch\` which worktree you are on
   wts init --mode run|proxy [--write] [--overwrite]
                                  detect the dev servers and propose (or write) a wts.json
+  wts setup [--uninstall] [--dry-run] [--no-mcp] [--no-hook]
+                                 register the MCP server and the agent hook in Claude Code
   wts mcp                        MCP server (stdio) for coding agents
   wts hook                       Claude Code PreToolUse guard (reads the event on stdin)
 
@@ -62,6 +65,10 @@ async function main(argv: string[]): Promise<void> {
       mode: { type: "string" },
       write: { type: "boolean", default: false },
       overwrite: { type: "boolean", default: false },
+      uninstall: { type: "boolean", default: false },
+      "dry-run": { type: "boolean", default: false },
+      "no-mcp": { type: "boolean", default: false },
+      "no-hook": { type: "boolean", default: false },
     },
   });
   const [command, arg] = positionals;
@@ -139,6 +146,8 @@ async function main(argv: string[]): Promise<void> {
       }
       return;
     }
+    case "setup":
+      return setup({ mcp: !values["no-mcp"], hook: !values["no-hook"], uninstall: values.uninstall, dryRun: values["dry-run"] });
     case "mcp":
       return serveMcp();
     case "hook":

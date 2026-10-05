@@ -3,10 +3,10 @@ import { test } from "node:test";
 import { attribute, isAlive, isDescendant, matchWorktree, type ProcInfo, type Procs } from "../src/owner.js";
 import type { State } from "../src/state.js";
 
-// Real worktree layout from the InsightHub repo, including a worktree nested inside main.
-const MAIN = "C:\\Users\\YitFei\\projects\\InsightHub";
-const NESTED = "C:\\Users\\YitFei\\projects\\InsightHub\\.claude\\worktrees\\superset-brand-color";
-const ORCA = "C:\\Users\\YitFei\\orca\\workspaces\\InsightHub\\Bandwidth-Assign";
+// A realistic layout: main checkout, an Orca worktree, and a worktree nested inside main.
+const MAIN = "C:\\Users\\dev\\projects\\MyApp";
+const NESTED = "C:\\Users\\dev\\projects\\MyApp\\.claude\\worktrees\\feature-x";
+const ORCA = "C:\\Users\\dev\\orca\\workspaces\\MyApp\\Login-Page";
 const WORKTREES = [MAIN, ORCA, NESTED];
 
 function procs(...list: Partial<ProcInfo>[]): Procs {
@@ -14,21 +14,21 @@ function procs(...list: Partial<ProcInfo>[]): Procs {
 }
 
 test("matches the Vite node command line to its worktree", () => {
-  const cmd = `"node"   "C:\\Users\\YitFei\\projects\\InsightHub\\frontend\\node_modules\\.bin\\\\..\\vite\\bin\\vite.js"`;
+  const cmd = `"node"   "C:\\Users\\dev\\projects\\MyApp\\frontend\\node_modules\\.bin\\\\..\\vite\\bin\\vite.js"`;
   assert.equal(matchWorktree(cmd, WORKTREES), MAIN);
 });
 
 test("nested worktree wins over its parent (longest match)", () => {
-  const exe = `${NESTED}\\backend\\InsightHub.API\\bin\\Debug\\net9.0\\InsightHub.API.exe`;
+  const exe = `${NESTED}\\backend\\MyApp.API\\bin\\Debug\\net9.0\\MyApp.API.exe`;
   assert.equal(matchWorktree(exe, WORKTREES), NESTED);
 });
 
 test("matching is case- and slash-insensitive", () => {
-  assert.equal(matchWorktree("c:/users/yitfei/orca/workspaces/insighthub/bandwidth-assign/frontend/x.js", WORKTREES), ORCA);
+  assert.equal(matchWorktree("c:/users/dev/orca/workspaces/myapp/login-page/frontend/x.js", WORKTREES), ORCA);
 });
 
 test("a sibling directory sharing a prefix does not match", () => {
-  assert.equal(matchWorktree("C:\\Users\\YitFei\\projects\\InsightHub-old\\frontend\\x.js", WORKTREES), null);
+  assert.equal(matchWorktree("C:\\Users\\dev\\projects\\MyApp-old\\frontend\\x.js", WORKTREES), null);
 });
 
 test("unrelated process is not attributed", () => {
@@ -64,6 +64,6 @@ test("attribute: process in a wts-started tree belongs to the state owner", () =
 });
 
 test("attribute: falls back to the process's own exe path", () => {
-  const p = procs({ pid: 30, exe: `${ORCA}\\backend\\InsightHub.API\\bin\\Debug\\net9.0\\InsightHub.API.exe` });
+  const p = procs({ pid: 30, exe: `${ORCA}\\backend\\MyApp.API\\bin\\Debug\\net9.0\\MyApp.API.exe` });
   assert.deepEqual(attribute(30, p, WORKTREES, null), { worktree: ORCA, viaWts: false });
 });

@@ -15,7 +15,7 @@ test("dev-server commands and lock overrides are blocked", () => {
     "vite",
     "vite --port 5174",
     "next dev",
-    "dotnet run --project InsightHub.API",
+    "dotnet run --project MyApp.API",
     "dotnet watch run",
     "wts switch --force",
     "wts unlock --force",

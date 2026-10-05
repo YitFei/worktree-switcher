@@ -24,7 +24,7 @@ npm install && npm run build && npm link
 {
   "readyTimeoutSec": 180,
   "services": {
-    "backend":  { "dir": "backend",  "port": 5241, "cmd": "dotnet run --project InsightHub.API --launch-profile http" },
+    "backend":  { "dir": "backend",  "port": 5241, "cmd": "dotnet run --project MyApp.API --launch-profile http" },
     "frontend": { "dir": "frontend", "port": 5173, "cmd": "npm run dev -- --strictPort" }
   }
 }

@@ -10,7 +10,7 @@ import { parseConfig } from "../src/config.js";
 import { proposeInit } from "../src/init.js";
 import { createServer } from "../src/mcp.js";
 
-/** A repo shaped like InsightHub: Vite frontend, .NET API, plus an untracked copy and a portless tool. */
+/** A typical app repo: Vite frontend, .NET API, plus an untracked copy and a portless tool. */
 function fixture(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wts-init-"));
   const put = (rel: string, text: string) => {

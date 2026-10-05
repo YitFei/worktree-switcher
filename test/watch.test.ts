@@ -6,10 +6,10 @@ import { parseOrcaActive } from "../src/focus/orca.js";
 
 test("parseOrcaActive extracts the worktree path", () => {
   const payload = JSON.stringify({
-    activeWorktreeId: "eee120f2-55de-49e4-ba78-0430ba1a79da::C:/Users/YitFei/orca/workspaces/wts-demo/demo1",
+    activeWorktreeId: "eee120f2-55de-49e4-ba78-0430ba1a79da::C:/Users/dev/orca/workspaces/wts-demo/demo1",
     activeTabId: "x",
   });
-  assert.equal(parseOrcaActive(payload), path.resolve("C:/Users/YitFei/orca/workspaces/wts-demo/demo1"));
+  assert.equal(parseOrcaActive(payload), path.resolve("C:/Users/dev/orca/workspaces/wts-demo/demo1"));
 });
 
 test("parseOrcaActive ignores non-worktree views and bad data", () => {

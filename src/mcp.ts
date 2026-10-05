@@ -28,6 +28,10 @@ worktree of a repo runs them at a time. In such a repo:
 - If a tool result says refused (locked by another worktree, or a port held by a program wts does not manage),
   stop and tell the user the reason. Do not work around it.
 - After a failed start, read wts_logs to find the cause.
+- Run mode (the default; wts_status shows no "mode: proxy"): wts owns the server processes. When they need a restart
+  (config or dependency changes the dev server does not hot-reload, a crash, a hung server), call wts_restart. Do not
+  stop or kill the processes on the ports and do not start them again yourself: wts_restart stops this worktree's
+  process tree, starts it from wts.json and waits until it is ready. To stop them, use wts_stop.
 - Tools answer "not configured" in a repo without wts.json; then start servers the usual way, unless the user
   asks to set up wts: then use wts_init. Before calling it, ASK the user which mode they want and never guess:
   run = wts starts/stops the servers, one worktree at a time, less memory, switching restarts servers;
