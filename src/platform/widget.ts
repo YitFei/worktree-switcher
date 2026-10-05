@@ -27,14 +27,22 @@ export interface WidgetState {
   restartTip: string;
   /** What Stop does here (run mode: stop the servers; proxy mode: clear the selection). */
   stopTip: string;
-  /** Run mode: show "Logs" (wts keeps the server output in log files). Proxy mode: you see it in your own terminals. */
-  logs: boolean;
+  /** Run mode: one Logs entry per service, red when it has a problem. Proxy mode: none (output is in your own terminals). */
+  logServices?: LogService[];
   /** Shown once as a popup; a new id shows a new popup. */
   notify?: { id: number; title: string; text: string };
   /** Setting: flash the button when another worktree takes over the ports. */
   flashOnSwitch: boolean;
   /** A new id flashes the floating button once. */
   flash?: number;
+}
+
+export interface LogService {
+  name: string;
+  /** ok = running; bad = not running while the worktree runs, or its port is held; idle = all stopped. */
+  state: "ok" | "bad" | "idle";
+  /** Why it is bad / idle, shown next to the name. */
+  note?: string;
 }
 
 export interface MenuProject {
@@ -53,7 +61,8 @@ export interface MenuProject {
 
 export type WidgetCommand =
   | { action: "switch"; path: string }
-  | { action: "lock" | "unlock" | "stop" | "exit" | "restart" | "auto" | "manual" | "showall" | "showcurrent" | "flashon" | "flashoff" | "logs" };
+  | { action: "logs"; service?: string }
+  | { action: "lock" | "unlock" | "stop" | "exit" | "restart" | "auto" | "manual" | "showall" | "showcurrent" | "flashon" | "flashoff" };
 
 /** NotifyIcon.Text throws above 63 characters on .NET Framework. */
 export function fitTooltip(text: string): string {
@@ -167,9 +176,10 @@ $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $menu.ShowItemToolTips = $true
 $script:auto = $false
 
-function Send-Cmd($action, $path) {
+function Send-Cmd($action, $path, $service) {
   $o = @{ action = $action; time = [DateTimeOffset]::Now.ToUnixTimeMilliseconds() }
   if ($path) { $o.path = $path }
+  if ($service) { $o.service = $service }
   [System.IO.File]::WriteAllText($script:CmdFile, ($o | ConvertTo-Json -Compress))
 }
 
@@ -212,10 +222,37 @@ function Build-Menu($s) {
   $r = $menu.Items.Add([string][char]0x21BB + ' Restart')
   $r.ToolTipText = $s.restartTip
   $r.add_Click({ Send-Cmd 'restart' })
-  if ($s.logs) {
-    $lg = $menu.Items.Add('Logs')
-    $lg.ToolTipText = 'Open a terminal window that follows every server''s output live (wts logs -f)'
-    $lg.add_Click({ Send-Cmd 'logs' })
+  $logs = @($s.logServices | Where-Object { $_ })
+  if ($logs.Count -gt 0) {
+    $red = [System.Drawing.Color]::FromArgb(207, 34, 46)
+    $lg = New-Object System.Windows.Forms.ToolStripMenuItem 'Logs'
+    $lg.DropDown.ShowItemToolTips = $true
+    $bad = @()
+    foreach ($l in $logs) {
+      $li = New-Object System.Windows.Forms.ToolStripMenuItem $l.name
+      $li.Tag = $l.name
+      $li.ToolTipText = "Follow the $($l.name) log live in a terminal window (wts logs $($l.name) -f)"
+      if ($l.state -eq 'bad') {
+        $li.Text = $l.name + '  (' + $l.note + ')'
+        $li.ForeColor = $red
+        $bad += $l.name
+      } elseif ($l.state -eq 'idle') {
+        $li.Text = $l.name + '  (' + $l.note + ')'
+      }
+      $li.add_Click({ param($sender) Send-Cmd 'logs' $null $sender.Tag })
+      [void]$lg.DropDownItems.Add($li)
+    }
+    [void]$lg.DropDownItems.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+    $la = $lg.DropDownItems.Add('All')
+    $la.ToolTipText = 'Follow every server''s log in one window, each line prefixed with its name'
+    $la.add_Click({ Send-Cmd 'logs' })
+    if ($bad.Count -gt 0) {
+      $lg.ForeColor = $red
+      $lg.ToolTipText = ($bad -join ', ') + ': not working. Open its log to see why.'
+    } else {
+      $lg.ToolTipText = 'Follow a server''s output live in a terminal window'
+    }
+    [void]$menu.Items.Add($lg)
   }
   [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
   if ($s.locked) {

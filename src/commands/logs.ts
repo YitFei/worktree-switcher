@@ -22,13 +22,15 @@ export function tail(file: string, n: number): string[] {
 }
 
 /**
- * The `cmd /s /c` command line that opens a new console window following every service log:
- * `start "<title>" "<node>" "<cli.js>" logs -f`. Quotes and cmd metacharacters in the title are
- * dropped (it is display text only).
+ * The `cmd /s /c` command line that opens a new console window following one service's log, or
+ * every service's: `start "<title>" "<node>" "<cli.js>" logs [service] -f`. Quotes and cmd
+ * metacharacters in the title are dropped (display text only); a service name that is not a plain
+ * word is refused rather than passed to cmd.
  */
-export function logWindowCommand(title: string, node: string, cli: string): string {
+export function logWindowCommand(title: string, node: string, cli: string, service?: string): string {
+  if (service !== undefined && !/^[\w.-]+$/.test(service)) throw new WtsError(`not a plain service name: ${service}`, 2);
   const safe = title.replace(/["^&|<>%]/g, "");
-  return `start "${safe}" "${node}" "${cli}" logs -f`;
+  return `start "${safe}" "${node}" "${cli}" logs${service ? ` ${service}` : ""} -f`;
 }
 
 export async function logs(ctx: CtxWithConfig, service: string | undefined, n: number, follow: boolean): Promise<void> {

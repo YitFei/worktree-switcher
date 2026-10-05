@@ -8,7 +8,7 @@ import { readFocus } from "../focus/file.js";
 import { defaultOrcaDb, orcaReader } from "../focus/orca.js";
 import { normPath } from "../owner.js";
 import { snapshot } from "../platform/win.js";
-import { Widget, type WidgetCommand, type WidgetKind, type WidgetState } from "../platform/widget.js";
+import { Widget, type LogService, type WidgetCommand, type WidgetKind, type WidgetState } from "../platform/widget.js";
 import { lock, unlock } from "./lock.js";
 import { stop } from "./stop.js";
 import { switchTo } from "./switch.js";
@@ -96,6 +96,20 @@ export function saveAuto(auto: boolean): void {
  * Did another worktree take over? `seen` is the last worktree that served (undefined before the
  * first look). A stop, a restart of the same worktree, or the first look do not count.
  */
+/**
+ * Run mode, per service: is it the one with a problem? A service is "bad" when it is not running
+ * while the worktree's other services are (it failed to start or crashed), or when another program
+ * holds its port. With everything stopped, nothing is a problem.
+ */
+export function serviceHealth(statuses: { service: string; pid: number | null; worktree: string | null }[]): LogService[] {
+  const running = statuses.some((s) => s.worktree !== null);
+  return statuses.map((s) => {
+    if (s.worktree !== null) return { name: s.service, state: "ok" };
+    if (s.pid !== null) return { name: s.service, state: "bad", note: "port held by another program" };
+    return running ? { name: s.service, state: "bad", note: "not running" } : { name: s.service, state: "idle", note: "stopped" };
+  });
+}
+
 export function ownerChanged(seen: string | null | undefined, now: string | null): boolean {
   return seen !== undefined && now !== null && normPath(now) !== (seen === null ? null : normPath(seen));
 }
@@ -175,7 +189,7 @@ class Watcher {
   async start(): Promise<void> {
     if (this.repo) await this.ensureProxy(this.repo);
     if (!this.widget) return;
-    this.widget.start({ label: "starting…", tooltip: "wts: starting…", color: "gray", locked: false, projects: [], auto: this.auto, showAll: this.showAll, restartTip: "", stopTip: "", logs: false, flashOnSwitch: this.flashOnSwitch });
+    this.widget.start({ label: "starting…", tooltip: "wts: starting…", color: "gray", locked: false, projects: [], auto: this.auto, showAll: this.showAll, restartTip: "", stopTip: "", flashOnSwitch: this.flashOnSwitch });
     this.refresh();
   }
 
@@ -242,7 +256,7 @@ class Watcher {
     }
     if (!this.repo) return;
     if (cmd.action === "restart") return this.restart(this.repo);
-    if (cmd.action === "logs") return this.openLogs(this.repo);
+    if (cmd.action === "logs") return this.openLogs(this.repo, cmd.service);
     // Act as the running worktree, so its own lock never blocks Lock/Stop from the widget.
     const where = this.owner ?? this.repo.current;
     try {
@@ -287,11 +301,12 @@ class Watcher {
     }
   }
 
-  /** Logs: a new terminal window that follows every service's log of the repo (`wts logs -f`). */
-  private openLogs(repo: CtxWithConfig): void {
-    const title = `wts logs - ${projectName(repo)}`;
+  /** Logs: a new terminal window that follows one service's log, or all of them (`wts logs [service] -f`). */
+  private openLogs(repo: CtxWithConfig, service?: string): void {
+    if (service && !repo.config.services[service]) return;
+    const title = `wts logs - ${projectName(repo)}${service ? ` - ${service}` : ""}`;
     try {
-      const child = spawn("cmd.exe", ["/d", "/s", "/c", `"${logWindowCommand(title, process.execPath, cliPath())}"`], {
+      const child = spawn("cmd.exe", ["/d", "/s", "/c", `"${logWindowCommand(title, process.execPath, cliPath(), service)}"`], {
         cwd: repo.current,
         detached: true,
         stdio: "ignore",
@@ -322,7 +337,7 @@ class Watcher {
     if (!this.widget) return;
     const n = notify ? { id: ++this.notifyId, ...notify } : undefined;
     if (!this.repo) {
-      this.widget.update({ label: "waiting", tooltip: "wts: waiting for a worktree with wts.json", color: "gray", locked: false, projects: this.projectsMenu(null, null), auto: this.auto, showAll: this.showAll, restartTip: this.restartTip(null), stopTip: this.stopTip(null), logs: false, notify: n, flashOnSwitch: this.flashOnSwitch, flash: this.flashId });
+      this.widget.update({ label: "waiting", tooltip: "wts: waiting for a worktree with wts.json", color: "gray", locked: false, projects: this.projectsMenu(null, null), auto: this.auto, showAll: this.showAll, restartTip: this.restartTip(null), stopTip: this.stopTip(null), notify: n, flashOnSwitch: this.flashOnSwitch, flash: this.flashId });
       return;
     }
     try {
@@ -335,10 +350,10 @@ class Watcher {
       if (ownerChanged(this.seenOwner, this.owner) && this.flashOnSwitch) this.flashId++;
       if (this.owner !== null || this.seenOwner === undefined) this.seenOwner = this.owner;
     }
-    this.widget.update({ ...s, auto: this.auto, showAll: this.showAll, restartTip: this.restartTip(this.repo), stopTip: this.stopTip(this.repo), logs: this.repo.config.mode !== "proxy", notify: n, flashOnSwitch: this.flashOnSwitch, flash: this.flashId });
+    this.widget.update({ ...s, auto: this.auto, showAll: this.showAll, restartTip: this.restartTip(this.repo), stopTip: this.stopTip(this.repo), notify: n, flashOnSwitch: this.flashOnSwitch, flash: this.flashId });
   }
 
-  private state(repo: CtxWithConfig, phase?: "switching", text?: string): Omit<WidgetState, "auto" | "restartTip" | "stopTip" | "logs" | "showAll" | "flashOnSwitch"> {
+  private state(repo: CtxWithConfig, phase?: "switching", text?: string): Omit<WidgetState, "auto" | "restartTip" | "stopTip" | "showAll" | "flashOnSwitch"> {
     if (repo.config.mode === "proxy") return this.proxyState(repo, phase, text);
     const portList = ports(repo).map((p) => `:${p}`).join(" ");
     const snap = snapshot(ports(repo));
@@ -353,9 +368,10 @@ class Watcher {
     const locked = lockInfo ? ` · locked by ${path.basename(lockInfo.worktree)}` : "";
 
     const lockMark = lockInfo ? " 🔒" : "";
-    const routes = alignRoutes(statuses.map((s) => [`:${s.port}`, "──", s.worktree ? path.basename(s.worktree) : s.pid !== null ? "another program" : "stopped", s.service]));
-    const routeStates = statuses.map((s) => (s.worktree ? "ok" : s.pid !== null ? "bad" : "idle") as "ok" | "bad" | "idle");
-    const base = { locked: !!lockInfo, projects: this.projectsMenu(repo, ownerPath, { routes, routeStates }) };
+    const health = serviceHealth(statuses);
+    const routes = alignRoutes(statuses.map((s, i) => [`:${s.port}`, "──", s.worktree ? path.basename(s.worktree) : s.pid !== null ? "another program" : health[i].state === "bad" ? "not running" : "stopped", s.service]));
+    const routeStates = health.map((h) => h.state);
+    const base = { locked: !!lockInfo, projects: this.projectsMenu(repo, ownerPath, { routes, routeStates }), logServices: health };
     if (phase === "switching") return { ...base, label: text ?? "switching…", tooltip: `wts: ${text}`, color: "yellow" };
     if (unknown.length > 0) {
       const busy = unknown.map((s) => `:${s.port}`).join(" ");
@@ -368,7 +384,7 @@ class Watcher {
   }
 
   /** Proxy mode: who the fixed ports forward to, from the forwarder's last discovery (no extra query). */
-  private proxyState(repo: CtxWithConfig, phase?: "switching", text?: string): Omit<WidgetState, "auto" | "restartTip" | "stopTip" | "logs" | "showAll" | "flashOnSwitch"> {
+  private proxyState(repo: CtxWithConfig, phase?: "switching", text?: string): Omit<WidgetState, "auto" | "restartTip" | "stopTip" | "showAll" | "flashOnSwitch"> {
     const selected = repo.store.readState()?.owner ?? null;
     const lockInfo = repo.store.readLock();
     this.owner = selected;

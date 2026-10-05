@@ -1,7 +1,26 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
-import { Debouncer, ownerChanged } from "../src/commands/watch.js";
+import { Debouncer, ownerChanged, serviceHealth } from "../src/commands/watch.js";
+
+test("Logs marks the service with the problem", () => {
+  const wt = "C:/dev/MyApp-a";
+  // backend runs, frontend failed to start: frontend is the problem
+  assert.deepEqual(
+    serviceHealth([
+      { service: "frontend", pid: null, worktree: null },
+      { service: "backend", pid: 10, worktree: wt },
+    ]),
+    [
+      { name: "frontend", state: "bad", note: "not running" },
+      { name: "backend", state: "ok" },
+    ],
+  );
+  // everything stopped: nothing is a problem
+  assert.deepEqual(serviceHealth([{ service: "frontend", pid: null, worktree: null }]), [{ name: "frontend", state: "idle", note: "stopped" }]);
+  // another program holds the port
+  assert.deepEqual(serviceHealth([{ service: "frontend", pid: 99, worktree: null }]), [{ name: "frontend", state: "bad", note: "port held by another program" }]);
+});
 import { parseOrcaActive } from "../src/focus/orca.js";
 
 test("parseOrcaActive extracts the worktree path", () => {
