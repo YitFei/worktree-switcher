@@ -19,6 +19,7 @@ export interface ForwarderDeps {
   discover(): Promise<Found[]>;
   log(msg: string): void;
   hosts?: string[];
+  retryBindMs?: number;
 }
 
 export class Forwarder {
@@ -35,9 +36,7 @@ export class Forwarder {
   async start(): Promise<void> {
     this.current = this.deps.selected();
     await this.refresh();
-    for (const [name, svc] of Object.entries(this.deps.services)) {
-      for (const host of this.deps.hosts ?? ["127.0.0.1", "::1"]) this.listen(name, svc.port, host);
-    }
+    await Promise.all(Object.entries(this.deps.services).map(([name, svc]) => this.bind(name, svc.port)));
     this.timers.push(setInterval(() => this.poll(), POLL_MS), setInterval(() => void this.refresh(), REDISCOVER_MS));
   }
 
@@ -60,19 +59,27 @@ export class Forwarder {
     return this.refresh();
   }
 
-  private listen(name: string, port: number, host: string): void {
-    const server = net.createServer((client) => void this.connect(name, client));
-    server.on("error", (e: NodeJS.ErrnoException) => {
-      if (e.code === "EADDRNOTAVAIL" || e.code === "EAFNOSUPPORT") return; // e.g. no IPv6
-      if (e.code === "EADDRINUSE") {
-        this.deps.log(`port ${port} (${name}) is taken by another program; retrying every ${RETRY_BIND_MS / 1000}s`);
-        setTimeout(() => !this.stopped && server.listen(port, host), RETRY_BIND_MS);
-        return;
-      }
-      this.deps.log(`proxy ${name} :${port}: ${e.message}`);
-    });
-    server.listen(port, host);
-    this.servers.push(server);
+  /**
+   * Take the fixed port on loopback, unless something already serves it. On Windows a bind to
+   * 127.0.0.1 succeeds even while another program listens on [::] / 0.0.0.0 — and then silently
+   * steals its traffic — so probe first and wait until the port is really free.
+   */
+  private async bind(name: string, port: number, warned = false): Promise<void> {
+    if (this.stopped) return;
+    if (await portAnswers(port)) {
+      if (!warned) this.deps.log(`port ${port} (${name}) is in use by another program; waiting for it to be free`);
+      setTimeout(() => void this.bind(name, port, true), this.deps.retryBindMs ?? RETRY_BIND_MS);
+      return;
+    }
+    for (const host of this.deps.hosts ?? ["127.0.0.1", "::1"]) {
+      const server = net.createServer((client) => void this.connect(name, client));
+      server.on("error", (e: NodeJS.ErrnoException) => {
+        if (e.code !== "EADDRNOTAVAIL" && e.code !== "EAFNOSUPPORT") this.deps.log(`proxy ${name} :${port} (${host}): ${e.message}`);
+      });
+      server.listen(port, host);
+      this.servers.push(server);
+    }
+    if (warned) this.deps.log(`port ${port} (${name}) is free now; forwarding`);
   }
 
   private poll(): void {
@@ -145,6 +152,22 @@ export class Forwarder {
     for (const s of this.sockets) s.destroy();
     this.sockets.clear();
   }
+}
+
+/** Does anything accept connections on this port (IPv4 or IPv6 loopback)? */
+export function portAnswers(port: number): Promise<boolean> {
+  const probe = (host: string) =>
+    new Promise<boolean>((resolve) => {
+      const s = net.connect({ port, host });
+      const done = (ok: boolean) => {
+        s.destroy();
+        resolve(ok);
+      };
+      s.setTimeout(300, () => done(false));
+      s.once("connect", () => done(true));
+      s.once("error", () => done(false));
+    });
+  return Promise.all([probe("127.0.0.1"), probe("::1")]).then(([a, b]) => a || b);
 }
 
 function escapeHtml(s: string): string {

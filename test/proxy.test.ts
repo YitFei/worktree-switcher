@@ -87,6 +87,32 @@ test("forwards to the selected worktree, switches instantly, 502 when its server
   }
 });
 
+test("never steals a port another program already serves; takes it once it is free", async () => {
+  const port = await freePort();
+  const other = http.createServer((_, res) => res.end("other program"));
+  await new Promise<void>((r) => other.listen(port, "::", r)); // dual-stack wildcard, like Vite / node defaults
+  const mine = await backend("worktree-a");
+  const logs: string[] = [];
+  const fwd = new Forwarder({
+    services: { web: { dir: ".", port, cmd: "", targets: { from: 1, to: 65535 } } },
+    selected: () => "C:\\wt\\a",
+    discover: async () => [{ service: "web", worktree: "C:\\wt\\a", port: mine.port, pid: 1 }],
+    log: (m) => logs.push(m),
+    retryBindMs: 200,
+  });
+  try {
+    await fwd.start();
+    assert.equal((await get(port)).body, "other program", "the other program keeps its traffic");
+    assert.match(logs.join(" | "), /in use by another program/);
+    await new Promise<void>((r) => other.close(() => r()));
+    await sleep(600);
+    assert.equal((await get(port)).body, "worktree-a", "proxy took over after the port was freed");
+  } finally {
+    fwd.stop();
+    mine.close();
+  }
+});
+
 test("discovery attributes listeners by command line, then by current directory", () => {
   const services = {
     web: { dir: ".", port: 5173, cmd: "", targets: { from: 5174, to: 5199 } },
