@@ -299,6 +299,7 @@ In proxy mode each worktree gets a stable **assigned port** per service, inside 
 | `wts focus [path]` | Tells a running `wts watch` which worktree you are on (for editor integrations). |
 | `wts init --mode run\|proxy [--write] [--overwrite]` | Detects the dev servers and proposes (or writes) a wts.json. |
 | `wts setup [--uninstall] [--dry-run] [--no-mcp] [--no-hook]` | Registers the MCP server and the hook in Claude Code. |
+| `wts --version` | The installed version. |
 | `wts mcp` / `wts hook` | The MCP server (stdio) and the Claude Code PreToolUse hook. Your agent starts these, not you. |
 
 `--force` only overrides another worktree's lock. Exit codes: `0` ok, `1` failure, `2` refused.
