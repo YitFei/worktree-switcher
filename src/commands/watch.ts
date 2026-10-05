@@ -13,6 +13,9 @@ import { stop } from "./stop.js";
 import { switchTo } from "./switch.js";
 import { repoForwarder, type Forwarder } from "../proxy.js";
 import { portsOf, readPortMap } from "../ports.js";
+import { listWorktreesDetailed } from "../git.js";
+import { isUsableWorktree, knownRepos } from "../repos.js";
+import type { MenuProject } from "../platform/widget.js";
 
 const POLL_MS = 500;
 const TRAY_REFRESH_MS = 10_000;
@@ -139,7 +142,7 @@ class Watcher {
   async start(): Promise<void> {
     if (this.repo) await this.ensureProxy(this.repo);
     if (!this.widget) return;
-    this.widget.start({ label: "starting…", tooltip: "wts: starting…", color: "gray", locked: false, worktrees: [], auto: this.auto, restartTip: "" });
+    this.widget.start({ label: "starting…", tooltip: "wts: starting…", color: "gray", locked: false, projects: [], auto: this.auto, restartTip: "" });
     this.refresh();
   }
 
@@ -252,7 +255,7 @@ class Watcher {
     if (!this.widget) return;
     const n = notify ? { id: ++this.notifyId, ...notify } : undefined;
     if (!this.repo) {
-      this.widget.update({ label: "waiting", tooltip: "wts: waiting for a worktree with wts.json", color: "gray", locked: false, worktrees: [], auto: this.auto, restartTip: this.restartTip(null), notify: n });
+      this.widget.update({ label: "waiting", tooltip: "wts: waiting for a worktree with wts.json", color: "gray", locked: false, projects: this.projectsMenu(null, null), auto: this.auto, restartTip: this.restartTip(null), notify: n });
       return;
     }
     try {
@@ -275,22 +278,20 @@ class Watcher {
     const ownerPath = owners.length === 1 ? statuses.find((s) => s.worktree)!.worktree! : null;
     this.owner = ownerPath;
 
-    const worktrees = repo.worktrees
-      .filter((wt) => fs.existsSync(path.join(wt, CONFIG_FILE)))
-      .map((wt) => ({ name: path.basename(wt), path: wt, active: !!ownerPath && normPath(wt) === normPath(ownerPath) }));
+    const proj = projectName(repo);
     const locked = lockInfo ? ` · locked by ${path.basename(lockInfo.worktree)}` : "";
 
     const lockMark = lockInfo ? " 🔒" : "";
-    const base = { locked: !!lockInfo, worktrees };
+    const base = { locked: !!lockInfo, projects: this.projectsMenu(repo, ownerPath) };
     if (phase === "switching") return { ...base, label: text ?? "switching…", tooltip: `wts: ${text}`, color: "yellow" };
     if (unknown.length > 0) {
       const busy = unknown.map((s) => `:${s.port}`).join(" ");
       return { ...base, label: `${busy} busy`, tooltip: `wts: ${busy} held by another program`, color: "red" };
     }
-    if (owners.length === 0) return { ...base, label: `stopped${lockMark}`, tooltip: `wts: stopped${locked} · ${portList}`, color: "gray" };
+    if (owners.length === 0) return { ...base, label: `${proj} · stopped${lockMark}`, tooltip: `wts: ${proj} stopped${locked} · ${portList}`, color: "gray" };
     const complete = owners.length === 1 && statuses.every((s) => s.pid !== null);
     const name = owners.length === 1 ? path.basename(ownerPath!) : "mixed worktrees";
-    return { ...base, label: `${name}${lockMark}`, tooltip: `wts: ${name}${locked} · ${portList}`, color: complete ? "green" : "red" };
+    return { ...base, label: `${proj} › ${name}${lockMark}`, tooltip: `wts: ${proj} › ${name}${locked} · ${portList}`, color: complete ? "green" : "red" };
   }
 
   /** Proxy mode: who the fixed ports forward to, from the forwarder's last discovery (no extra query). */
@@ -298,15 +299,13 @@ class Watcher {
     const selected = repo.store.readState()?.owner ?? null;
     const lockInfo = repo.store.readLock();
     this.owner = selected;
-    const worktrees = repo.worktrees
-      .filter((wt) => fs.existsSync(path.join(wt, CONFIG_FILE)))
-      .map((wt) => ({ name: path.basename(wt), path: wt, active: !!selected && normPath(wt) === normPath(selected) }));
-    const base = { locked: !!lockInfo, worktrees };
+    const proj = projectName(repo);
+    const base = { locked: !!lockInfo, projects: this.projectsMenu(repo, selected) };
     const lockMark = lockInfo ? " 🔒" : "";
     const locked = lockInfo ? ` · locked by ${path.basename(lockInfo.worktree)}` : "";
     if (phase === "switching") return { ...base, label: text ?? "switching…", tooltip: `wts: ${text}`, color: "yellow" };
-    if (!selected) return { ...base, label: `none selected${lockMark}`, tooltip: `wts proxy: no worktree selected${locked}`, color: "gray" };
-    const name = path.basename(selected);
+    if (!selected) return { ...base, label: `${proj} · none selected${lockMark}`, tooltip: `wts proxy: ${proj}, no worktree selected${locked}`, color: "gray" };
+    const name = `${proj} › ${path.basename(selected)}`;
     const ports = this.proxies.get(repo.store.dir)?.portsFor(selected) ?? {};
     const missing = Object.keys(ports).filter((s) => ports[s] === null);
     const routes = Object.entries(repo.config.services).map(([s, svc]) => `${s} ${svc.port}→${ports[s] ?? "-"}`).join(", ");
@@ -316,6 +315,55 @@ class Watcher {
       return { ...base, label: `${name}${lockMark}`, tooltip: `wts: ${name} - start ${todo}${locked}`, color: "red" };
     }
     return { ...base, label: `${name}${lockMark}`, tooltip: `wts: ${name} · ${routes}${locked}`, color: "green" };
+  }
+
+  /**
+   * Menu groups: the current project first, then every other project wts has used on this machine
+   * (~/.wts/repos.json). Only worktrees with a wts.json; Orca's temp folders are skipped. The active
+   * mark of other projects comes from their saved state, so this costs only a `git worktree list`.
+   */
+  private projectsMenu(repo: CtxWithConfig | null, active: string | null): MenuProject[] {
+    const groups: MenuProject[] = [];
+    const seen = new Set<string>();
+    const add = (cwd: string, commonDirPath: string, activePath: string | null) => {
+      const key = normPath(commonDirPath);
+      if (seen.has(key)) return;
+      seen.add(key);
+      let infos;
+      try {
+        infos = listWorktreesDetailed(cwd);
+      } catch {
+        return;
+      }
+      const main = infos.find((i) => i.main);
+      const worktrees = infos
+        .filter((i) => isUsableWorktree(i.path) && fs.existsSync(path.join(i.path, CONFIG_FILE)))
+        .map((i) => ({
+          name: i.main ? `${i.branch ?? "main"} (main)` : path.basename(i.path),
+          path: i.path,
+          active: !!activePath && normPath(i.path) === normPath(activePath),
+        }));
+      if (worktrees.length > 0) groups.push({ name: path.basename(main?.path ?? cwd), path: main?.path ?? cwd, worktrees });
+    };
+    if (repo) add(repo.current, path.dirname(repo.store.dir), active);
+    const others = knownRepos().sort((a, b) => path.basename(a.worktree).localeCompare(path.basename(b.worktree)));
+    for (const r of others) add(r.worktree, r.commonDir, savedOwner(r.commonDir));
+    return groups;
+  }
+}
+
+/** The project's name: the main checkout's folder (falls back to the current worktree's). */
+function projectName(repo: CtxWithConfig): string {
+  const common = path.dirname(repo.store.dir);
+  return path.basename(path.basename(common).toLowerCase() === ".git" ? path.dirname(common) : repo.current);
+}
+
+/** Who runs a project's servers / is selected, from its saved state (no port query). */
+function savedOwner(commonDirPath: string): string | null {
+  try {
+    return (JSON.parse(fs.readFileSync(path.join(commonDirPath, "wts", "state.json"), "utf8")) as { owner?: string }).owner ?? null;
+  } catch {
+    return null;
   }
 }
 

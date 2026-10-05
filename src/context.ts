@@ -3,6 +3,7 @@ import { loadConfig, type Config } from "./config.js";
 import { commonDir, listWorktrees, worktreeRoot } from "./git.js";
 import { attribute, samePath, type Procs } from "./owner.js";
 import { Store, type State } from "./state.js";
+import { isUsableWorktree, rememberRepo } from "./repos.js";
 
 export interface Ctx {
   /** Worktree wts was run from. */
@@ -16,12 +17,14 @@ export interface CtxWithConfig extends Ctx {
 }
 
 export function loadContext(cwd: string): Ctx {
-  return { current: worktreeRoot(cwd), worktrees: listWorktrees(cwd), store: new Store(commonDir(cwd)) };
+  return { current: worktreeRoot(cwd), worktrees: listWorktrees(cwd).filter(isUsableWorktree), store: new Store(commonDir(cwd)) };
 }
 
 export function loadContextWithConfig(cwd: string): CtxWithConfig {
   const ctx = loadContext(cwd);
-  return { ...ctx, config: loadConfig(ctx.current) };
+  const config = loadConfig(ctx.current);
+  rememberRepo(path.dirname(ctx.store.dir), ctx.current); // for the floating button's project list
+  return { ...ctx, config };
 }
 
 export function ports(ctx: CtxWithConfig): number[] {

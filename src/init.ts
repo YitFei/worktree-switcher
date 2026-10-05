@@ -5,7 +5,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { CONFIG_FILE, parseConfig, type Mode } from "./config.js";
 import { WtsError } from "./errors.js";
-import { worktreeRoot } from "./git.js";
+import { commonDir, worktreeRoot } from "./git.js";
+import { rememberRepo } from "./repos.js";
 
 export interface Detected {
   name: string;
@@ -196,4 +197,5 @@ export function writeInit(p: InitProposal, overwrite: boolean): void {
   if (!p.config) throw new WtsError("nothing to write: no dev servers detected", 2);
   if (p.exists && !overwrite) throw new WtsError(`${p.file} already exists; pass overwrite to replace it`, 2);
   fs.writeFileSync(p.file, p.json);
+  rememberRepo(commonDir(p.root), p.root);
 }

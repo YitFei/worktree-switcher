@@ -25,6 +25,35 @@ export function listWorktrees(cwd: string): string[] {
   return parseWorktreeList(git(["worktree", "list", "--porcelain"], cwd));
 }
 
+export interface WorktreeInfo {
+  path: string;
+  /** Branch name without refs/heads/, or null when detached. */
+  branch: string | null;
+  /** The main checkout (the first entry git lists). */
+  main: boolean;
+}
+
+/** All worktrees with their branch; the first is the main checkout. */
+export function listWorktreesDetailed(cwd: string): WorktreeInfo[] {
+  return parseWorktreeDetails(git(["worktree", "list", "--porcelain"], cwd));
+}
+
+export function parseWorktreeDetails(porcelain: string): WorktreeInfo[] {
+  const out: WorktreeInfo[] = [];
+  for (const block of porcelain.split(/\r?\n\r?\n/)) {
+    const lines = block.split(/\r?\n/);
+    const wt = lines.find((l) => l.startsWith("worktree "));
+    if (!wt) continue;
+    const br = lines.find((l) => l.startsWith("branch "));
+    out.push({
+      path: path.resolve(wt.slice("worktree ".length)),
+      branch: br ? br.slice("branch ".length).replace(/^refs\/heads\//, "") : null,
+      main: out.length === 0,
+    });
+  }
+  return out;
+}
+
 export function parseWorktreeList(porcelain: string): string[] {
   return porcelain
     .split(/\r?\n/)
