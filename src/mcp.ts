@@ -12,7 +12,12 @@ import { status } from "./commands/status.js";
 import { switchTo } from "./commands/switch.js";
 import { stop } from "./commands/stop.js";
 import { tail } from "./commands/logs.js";
-import { discover, portOf } from "./discover.js";
+import { planPorts, portOf } from "./discover.js";
+import { assignedWithHints } from "./commands/select.js";
+import { CONFIG_FILE } from "./config.js";
+import { listWorktrees } from "./git.js";
+import fs from "node:fs";
+import nodePath from "node:path";
 import { proposeInit, writeInit } from "./init.js";
 
 export const INSTRUCTIONS = `wts manages the dev servers of repos that have a wts.json: the ports are fixed and only one
@@ -28,10 +33,15 @@ worktree of a repo runs them at a time. In such a repo:
   run = wts starts/stops the servers, one worktree at a time, less memory, switching restarts servers;
   proxy = they start every worktree's servers themselves (dev server left open with hot reload), wts forwards the
   fixed ports, switching is instant, all worktrees' servers keep running. Show the proposal, write only after
-  the user confirms.
-Proxy mode (wts_status says "mode: proxy"): here you DO start your worktree's dev servers yourself, on a free port
-inside the service's target range shown by wts_status (Vite picks the next free port by itself). Then call wts_switch:
-it only points the fixed ports at your worktree, stops nothing, and reports services that are not running yet.`;
+  the user confirms. Then suggest committing wts.json to the main branch: worktrees created later get it, existing
+  ones after merging it.
+Proxy mode (wts_status / wts_port say "mode: proxy"): here you DO start your worktree's dev servers yourself.
+- The fixed ports (e.g. 5173) are held by the wts proxy. That is expected: do not treat them as taken by someone
+  else, do not pick another port by trial and error, do not write temporary configs to move them.
+- Your worktree has an assigned port per service: call wts_port (or wts_status) and start each server with the
+  startHint it gives (e.g. npm run dev -- --port 5175 --strictPort), from your worktree.
+- Then call wts_switch: it points the fixed ports at your worktree, stops nothing, and reports services that are
+  not running yet. The user opens the usual URL (the fixed port).`;
 
 const NL = String.fromCharCode(10);
 
@@ -52,23 +62,24 @@ export function createServer(cwd = process.cwd()): McpServer {
     ({ path }) =>
       run(where(path), async (ctx) => {
         if (ctx.config.mode === "proxy") {
-          await status(ctx);
           const selected = ctx.store.readState()?.owner ?? null;
-          const found = await discover(ctx.config.services, ctx.worktrees);
-          return {
-            mode: "proxy",
-            worktree: ctx.current,
-            selected,
-            selectedIsYou: !!selected && samePath(selected, ctx.current),
-            lock: ctx.store.readLock(),
-            services: Object.entries(ctx.config.services).map(([service, svc]) => ({
-              service,
-              fixedPort: svc.port,
-              targets: `${svc.targets!.from}-${svc.targets!.to}`,
-              yourPort: portOf(found, service, ctx.current),
-              running: found.filter((f) => f.service === service).map((f) => ({ worktree: f.worktree, port: f.port })),
-            })),
-          };
+          const { found, mine } = await planPorts(ctx);
+          const assigned = assignedWithHints(ctx, mine);
+          const services = Object.entries(ctx.config.services).map(([service, svc]) => ({
+            service,
+            fixedPort: svc.port,
+            fixedPortHeldByProxy: true,
+            targets: `${svc.targets!.from}-${svc.targets!.to}`,
+            assignedPort: assigned[service]?.port ?? null,
+            startHint: assigned[service]?.startHint ?? null,
+            runningOn: portOf(found, service, ctx.current),
+            otherWorktrees: found.filter((f) => f.service === service && !samePath(f.worktree, ctx.current)).map((f) => ({ worktree: f.worktree, port: f.port })),
+          }));
+          console.log(`mode: proxy; selected: ${selected ?? "none"}${selected && samePath(selected, ctx.current) ? " (you)" : ""}`);
+          for (const s of services) {
+            console.log(`${s.service}: fixed :${s.fixedPort} (held by the wts proxy), yours :${s.assignedPort} - ${s.runningOn ? `running on :${s.runningOn}` : `not running; start: ${s.startHint}`}`);
+          }
+          return { mode: "proxy", worktree: ctx.current, selected, selectedIsYou: !!selected && samePath(selected, ctx.current), lock: ctx.store.readLock(), services };
         }
         const snap = snapshot(ports(ctx));
         const statuses = inspect(ctx, snap.listeners, snap.procs, ctx.store.readState());
@@ -133,6 +144,26 @@ export function createServer(cwd = process.cwd()): McpServer {
   );
 
   server.registerTool(
+    "wts_port",
+    {
+      description:
+        "Proxy mode: the port your worktree must run each service on, and the command to start it there. The fixed ports are held by the wts proxy on purpose; use these ports instead.",
+      inputSchema: pathArg,
+    },
+    ({ path }) =>
+      run(where(path), async (ctx) => {
+        if (ctx.config.mode !== "proxy") {
+          console.log("run mode: wts starts the servers itself on the fixed ports; call wts_switch, do not start them yourself.");
+          return { mode: "run" };
+        }
+        const { mine } = await planPorts(ctx);
+        const assigned = assignedWithHints(ctx, mine);
+        for (const [s, a] of Object.entries(assigned)) console.log(`${s}: port ${a.port}  ->  ${a.startHint}`);
+        return { mode: "proxy", worktree: ctx.current, assigned };
+      }),
+  );
+
+  server.registerTool(
     "wts_init",
     {
       description:
@@ -192,10 +223,14 @@ async function capture(worktree: string, fn: (ctx: CtxWithConfig) => Promise<Rec
     try {
       ctx = loadContextWithConfig(worktree);
     } catch (e) {
-      const reason = (e as Error).message;
+      let reason = (e as Error).message;
+      const elsewhere = configuredElsewhere(worktree);
+      if (elsewhere.length > 0) {
+        reason += `. But ${elsewhere.join(", ")} has a ${CONFIG_FILE}: it was not committed or not merged into this worktree yet. Tell the user; once it is committed (e.g. on the main branch) and merged here, wts works in this worktree.`;
+      }
       return {
         content: [{ type: "text", text: `wts is not configured here: ${reason}` }],
-        structuredContent: { ok: false, configured: false, reason },
+        structuredContent: { ok: false, configured: false, reason, configuredElsewhere: elsewhere },
       };
     }
     const data = await fn(ctx);
@@ -213,6 +248,15 @@ async function capture(worktree: string, fn: (ctx: CtxWithConfig) => Promise<Rec
     };
   } finally {
     Object.assign(console, saved);
+  }
+}
+
+/** Other worktrees of the same repo that have a wts.json (e.g. written but not committed / merged). */
+function configuredElsewhere(worktree: string): string[] {
+  try {
+    return listWorktrees(worktree).filter((wt) => !samePath(wt, worktree) && fs.existsSync(nodePath.join(wt, CONFIG_FILE)));
+  } catch {
+    return [];
   }
 }
 

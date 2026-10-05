@@ -11,6 +11,7 @@ import { lock, unlock } from "./lock.js";
 import { stop } from "./stop.js";
 import { switchTo } from "./switch.js";
 import { repoForwarder, type Forwarder } from "../proxy.js";
+import { portsOf, readPortMap } from "../ports.js";
 
 const POLL_MS = 500;
 const TRAY_REFRESH_MS = 10_000;
@@ -233,7 +234,9 @@ class Watcher {
     const missing = Object.keys(ports).filter((s) => ports[s] === null);
     const routes = Object.entries(repo.config.services).map(([s, svc]) => `${s} ${svc.port}→${ports[s] ?? "-"}`).join(", ");
     if (missing.length > 0) {
-      return { ...base, label: `${name}${lockMark}`, tooltip: `wts: ${name} not running ${missing.join(", ")}${locked}`, color: "red" };
+      const want = portsOf(readPortMap(repo.store.dir), selected);
+      const todo = missing.map((s) => (want[s] ? `${s} on ${want[s]}` : s)).join(", ");
+      return { ...base, label: `${name}${lockMark}`, tooltip: `wts: ${name} - start ${todo}${locked}`, color: "red" };
     }
     return { ...base, label: `${name}${lockMark}`, tooltip: `wts: ${name} · ${routes}${locked}`, color: "green" };
   }

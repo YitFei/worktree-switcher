@@ -28,7 +28,7 @@ function tempRepo(withConfig: boolean): string {
 test("lists the tools and hands agents the usage rules", async () => {
   const client = await connect(os.tmpdir());
   const names = (await client.listTools()).tools.map((t) => t.name).sort();
-  assert.deepEqual(names, ["wts_init", "wts_logs", "wts_status", "wts_stop", "wts_switch"]);
+  assert.deepEqual(names, ["wts_init", "wts_logs", "wts_port", "wts_status", "wts_stop", "wts_switch"]);
   assert.equal(client.getInstructions(), INSTRUCTIONS);
   await client.close();
 });

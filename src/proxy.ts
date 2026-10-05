@@ -6,6 +6,7 @@ import net from "node:net";
 import type { ServiceConfig } from "./config.js";
 import { listWorktrees } from "./git.js";
 import { discover, portOf, type Found } from "./discover.js";
+import { portsOf, readPortMap } from "./ports.js";
 import type { CtxWithConfig } from "./context.js";
 
 const POLL_MS = 500;
@@ -18,6 +19,8 @@ export interface ForwarderDeps {
   selected(): string | null;
   discover(): Promise<Found[]>;
   log(msg: string): void;
+  /** The port a worktree should run a service on (for the 502 page), if assigned. */
+  assignedPort?(service: string, worktree: string): number | undefined;
   hosts?: string[];
   retryBindMs?: number;
 }
@@ -146,8 +149,9 @@ export class Forwarder {
   private reject(name: string, worktree: string | null, client: net.Socket): void {
     const svc = this.deps.services[name];
     const range = svc.targets ? `${svc.targets.from}-${svc.targets.to}` : "";
+    const want = worktree ? this.deps.assignedPort?.(name, worktree) : undefined;
     const msg = worktree
-      ? `wts: ${worktree} has no '${name}' server running (expected a port in ${range}). Start it in that worktree.`
+      ? `wts: ${worktree} has no '${name}' server running (expected ${want ? `on port ${want}` : `a port in ${range}`}). Start it in that worktree.`
       : `wts: no worktree is selected for '${name}' (:${svc.port}). Run \`wts switch\` in the worktree you want to see.`;
     const timer = setTimeout(() => client.destroy(), 2000);
     client.once("data", (chunk: Buffer) => {
@@ -208,7 +212,8 @@ export function repoForwarder(ctx: CtxWithConfig, log: (msg: string) => void): F
         return null;
       }
     },
-    discover: () => discover(ctx.config.services, listWorktrees(ctx.current)),
+    discover: () => discover(ctx.config.services, listWorktrees(ctx.current), readPortMap(ctx.store.dir)),
+    assignedPort: (service, worktree) => portsOf(readPortMap(ctx.store.dir), worktree)[service],
     log,
   });
 }

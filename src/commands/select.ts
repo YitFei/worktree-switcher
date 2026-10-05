@@ -1,6 +1,8 @@
 // Proxy mode versions of switch / stop / status: the user runs the servers, wts only chooses
 // which worktree the fixed ports forward to. Nothing is started or stopped here.
-import { discover, portOf, type Found } from "../discover.js";
+import { planPorts, portOf, type Found } from "../discover.js";
+import { frameworkFor } from "../init.js";
+import { startHint } from "../ports.js";
 import { describe, normPath } from "../owner.js";
 import { snapshot } from "../platform/win.js";
 import { repoForwarder } from "../proxy.js";
@@ -14,7 +16,19 @@ export interface SelectResult {
   /** service → port in the selected worktree, null when not running there. */
   targets: Record<string, number | null>;
   missing: string[];
+  /** service -> the port this worktree should run it on, and how to start it there. */
+  assigned: Record<string, { port: number; startHint: string }>;
   proxyRunning: boolean;
+}
+
+/** This worktree's assigned port and start command per service. */
+export function assignedWithHints(ctx: CtxWithConfig, mine: Record<string, number>): Record<string, { port: number; startHint: string }> {
+  const out: Record<string, { port: number; startHint: string }> = {};
+  for (const [name, svc] of Object.entries(ctx.config.services)) {
+    const port = mine[name];
+    if (port !== undefined) out[name] = { port, startHint: startHint(frameworkFor(ctx.current, svc.dir), svc.dir, port) };
+  }
+  return out;
 }
 
 const range = (ctx: CtxWithConfig, name: string) => {
@@ -38,7 +52,8 @@ function proxyState(ctx: CtxWithConfig): { running: boolean; hint?: string } {
 
 export async function selectWorktree(ctx: CtxWithConfig, force: boolean): Promise<SelectResult> {
   checkLock(ctx.store.readLock(), ctx.current, force);
-  const found = await discover(ctx.config.services, ctx.worktrees);
+  const { found, mine } = await planPorts(ctx);
+  const assigned = assignedWithHints(ctx, mine);
   ctx.store.writeState({ owner: ctx.current, startedAt: new Date().toISOString(), services: {} });
 
   const targets: Record<string, number | null> = {};
@@ -46,12 +61,12 @@ export async function selectWorktree(ctx: CtxWithConfig, force: boolean): Promis
   for (const [name, svc] of Object.entries(ctx.config.services)) {
     const port = portOf(found, name, ctx.current);
     targets[name] = port;
-    console.log(`  ${name.padEnd(10)} :${svc.port} → ${port ? `:${port}` : `not running here — start it on a port in ${range(ctx, name)}`}`);
+    console.log(`  ${name.padEnd(10)} :${svc.port} → ${port ? `:${port}` : assigned[name] ? `not running here — start it on :${assigned[name].port}:  ${assigned[name].startHint}` : `not running here — no free port left in ${range(ctx, name)}`}`);
   }
   const proxy = proxyState(ctx);
   if (proxy.hint) console.log(proxy.hint);
   const missing = Object.keys(targets).filter((n) => targets[n] === null);
-  return { mode: "proxy", selected: ctx.current, targets, missing, proxyRunning: proxy.running };
+  return { mode: "proxy", selected: ctx.current, targets, missing, assigned, proxyRunning: proxy.running };
 }
 
 export function clearSelection(ctx: CtxWithConfig, force: boolean): void {
@@ -63,19 +78,23 @@ export function clearSelection(ctx: CtxWithConfig, force: boolean): void {
 export async function proxyStatus(ctx: CtxWithConfig): Promise<void> {
   const selected = ctx.store.readState()?.owner ?? null;
   const lock = ctx.store.readLock();
-  const found = await discover(ctx.config.services, ctx.worktrees);
+  const { found, mine, map } = await planPorts(ctx);
+  const assigned = assignedWithHints(ctx, mine);
   console.log(`worktree: ${label(ctx.current, ctx.current)}`);
   console.log(`mode:     proxy`);
   console.log(`lock:     ${lock ? `${label(lock.worktree, ctx.current)} since ${lock.time}${lock.note ? ` — ${lock.note}` : ""}` : "none"}`);
   console.log(`selected: ${selected ? label(selected, ctx.current) : "none"}`);
   console.log(`proxy:    ${proxyState(ctx).hint ?? "running"}`);
   for (const [name, svc] of Object.entries(ctx.config.services)) {
-    console.log(`\n${name} :${svc.port}  (worktrees run it on ${range(ctx, name)})`);
+    console.log(`\n${name} :${svc.port}  (held by the proxy; worktrees run it on ${range(ctx, name)})`);
+    if (assigned[name]) console.log(`  this worktree: :${assigned[name].port}  ->  ${assigned[name].startHint}`);
     const here = found.filter((f: Found) => f.service === name);
     if (here.length === 0) console.log("  no worktree runs it");
     for (const f of here) {
       const mark = selected && normPath(selected) === normPath(f.worktree) ? "●" : "○";
-      console.log(`  ${mark} :${f.port}  ${label(f.worktree, ctx.current)}`);
+      const want = Object.entries(map).find(([wt]) => normPath(wt) === normPath(f.worktree))?.[1][name];
+      const off = want !== undefined && want !== f.port ? `  (assigned :${want})` : "";
+      console.log(`  ${mark} :${f.port}  ${label(f.worktree, ctx.current)}${off}`);
     }
     if (selected && portOf(found, name, selected) === null) console.log(`  ! the selected worktree does not run ${name}`);
   }

@@ -138,6 +138,16 @@ export function detect(root: string, files = trackedFiles(root)): { services: De
   return { services, notes };
 }
 
+/** The framework of the service that lives in `dir` (for start hints), if it can be detected. */
+export function frameworkFor(root: string, dir: string): Detected["framework"] | undefined {
+  try {
+    const norm = dir.split(path.sep).join("/").replace(/\/$/, "") || ".";
+    return detect(root).services.find((s) => s.dir === norm)?.framework;
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildConfig(mode: Mode, services: Detected[]): Record<string, unknown> | null {
   const usable = services.filter((s) => s.port !== null);
   if (usable.length === 0) return null;

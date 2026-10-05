@@ -11,7 +11,8 @@ import { watch } from "./commands/watch.js";
 import { focus } from "./commands/focus.js";
 import { serveMcp } from "./mcp.js";
 import { runHook } from "./hook.js";
-import { runProxy } from "./commands/select.js";
+import { assignedWithHints, runProxy } from "./commands/select.js";
+import { planPorts } from "./discover.js";
 import { proposeInit, writeInit } from "./init.js";
 
 const USAGE = `wts — switch which git worktree owns the repo's dev-server ports
@@ -21,6 +22,7 @@ Usage (run inside any worktree that has a wts.json):
   wts switch [--force]           run mode: stop the current owner, start this worktree's services
                                  proxy mode: forward the fixed ports to this worktree
   wts proxy                      proxy mode: run the forwarder (wts watch also runs it)
+  wts port [service]             proxy mode: the port this worktree runs a service on (and how to start it)
   wts stop [--force]             stop services owned by worktrees of this repo
   wts logs [service] [-n 50] [-f]
   wts lock [--note "..."] [--force]
@@ -93,6 +95,18 @@ async function main(argv: string[]): Promise<void> {
       return focus(arg ?? cwd);
     case "proxy":
       return runProxy(loadContextWithConfig(cwd));
+    case "port": {
+      const ctx = loadContextWithConfig(cwd);
+      if (ctx.config.mode !== "proxy") throw new WtsError("`wts port` is for proxy mode; in run mode wts starts the servers on the fixed ports", 2);
+      const assigned = assignedWithHints(ctx, (await planPorts(ctx)).mine);
+      if (arg) {
+        if (!assigned[arg]) throw new WtsError(`unknown service "${arg}" (or no free port left in its range)`, 2);
+        console.log(String(assigned[arg].port)); // bare number, for scripts
+      } else {
+        for (const [s, a] of Object.entries(assigned)) console.log(`${s}: ${a.port}  ->  ${a.startHint}`);
+      }
+      return;
+    }
     case "init": {
       if (values.mode !== "run" && values.mode !== "proxy") throw new WtsError("--mode run or --mode proxy is required (your choice: see README)", 2);
       const p = proposeInit(cwd, values.mode);
