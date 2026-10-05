@@ -48,10 +48,11 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "npm run clean && tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsc && node --test \"dist/test/**/*.test.js\"",
-    "prepublishOnly": "npm test"
+    "test": "npm run build && node --test \"dist/test/**/*.test.js\"",
+    "prepublishOnly": "npm test",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.0",
