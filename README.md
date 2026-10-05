@@ -38,6 +38,7 @@ equivalent so a busy port fails instead of silently moving.
 | `wts watch [--orca] [--delay 3] [--ui float\|tray\|none]` | Follow the worktree you are looking at and switch to it (see below) |
 | `wts focus [path]` | Tell a running `wts watch` which worktree you are on (for editor integrations) |
 | `wts mcp` | MCP server for coding agents (see below) |
+| `wts hook` | Claude Code PreToolUse guard for agents (see below) |
 
 `--force` only overrides another worktree's lock. Exit codes: `0` ok, `1` failure, `2` refused.
 
@@ -92,6 +93,31 @@ args = ["C:/path/to/wts/dist/src/cli.js", "mcp"]
 
 `wts_switch` waits up to `readyTimeoutSec` (e.g. 180 s for a .NET backend); raise the client's
 tool timeout if needed (Claude Code: `MCP_TOOL_TIMEOUT` in ms).
+
+### Enforce it: `wts hook`
+
+`wts mcp` makes agents prefer wts; `wts hook` makes it a rule. It is a Claude Code PreToolUse
+hook: in a worktree with `wts.json` it blocks `npm|pnpm|yarn|bun dev|start|serve`, `vite`,
+`next dev`, `dotnet run`, `dotnet watch` and `wts … --force`, and tells the agent to use
+`wts_switch`. Elsewhere it allows everything; on any internal error it allows (never breaks an
+agent). Your own terminal is not affected. Add to `~/.claude/settings.json`:
+
+```json
+{ "hooks": { "PreToolUse": [ {
+  "matcher": "Bash|PowerShell",
+  "hooks": [ { "type": "command", "command": "node",
+               "args": ["C:/path/to/wts/dist/src/cli.js", "hook"], "timeout": 10 } ]
+} ] } }
+```
+
+It matches command text with quoted strings and heredoc bodies removed, so a commit message or a
+prompt that mentions `npm run dev` is fine. Limitation: a command hidden inside quotes
+(`bash -c "npm run dev"`) is not caught.
+
+## Demo
+
+[`examples/demo`](examples/demo/README.md): a one-button page + a tiny API, configured by this
+repo's own `wts.json` — make two worktrees, give each a colour, switch between them.
 
 ## Safety rules
 

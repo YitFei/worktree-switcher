@@ -16,8 +16,20 @@ const DEV_SERVERS: RegExp[] = [
 ];
 const FORCE = /\bwts\b[^;&|]*\s--force\b/i;
 
+/**
+ * The parts of a shell command that run as commands: heredoc bodies and quoted strings are
+ * removed, so text that only mentions a dev server (a prompt, a commit message, a file being
+ * written) is not mistaken for running one. `bash -c "npm run dev"` slips through; accepted.
+ */
+export function executableText(cmd: string): string {
+  return cmd
+    .replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2\s*(?=\n|$)/g, " ")
+    .replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""');
+}
+
 /** Why this command must not be run by an agent in a wts-managed worktree, or null. */
-export function checkCommand(cmd: string): string | null {
+export function checkCommand(raw: string): string | null {
+  const cmd = executableText(raw);
   if (FORCE.test(cmd)) {
     return "agents may not override a wts lock (--force). The user locked the dev servers on purpose: tell them instead.";
   }

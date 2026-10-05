@@ -36,9 +36,20 @@ test("builds, tests and normal wts use are allowed", () => {
     "dotnet watch test",
     "wts switch",
     "wts status",
-    "git commit -m 'npm run dev fix'".replace("npm run dev", "dev server"),
   ];
   for (const cmd of allowed) assert.equal(checkCommand(cmd), null, `should allow: ${cmd}`);
+});
+
+test("text that only mentions a dev server is not blocked", () => {
+  const mentions = [
+    `git commit -m "stop agents running npm run dev"`,
+    `claude -p 'Run npm run dev and tell me the URL'`,
+    `echo "use wts switch --force only as a human" > notes.md`,
+    "cat >> notes.md <<'EOF'\nagents may not run `wts switch --force` or npm run dev\nEOF\ngit add notes.md",
+  ];
+  for (const cmd of mentions) assert.equal(checkCommand(cmd), null, `should allow: ${cmd}`);
+  assert.ok(checkCommand(`cd "my app" && npm run dev`), "a quoted path does not hide the command after it");
+  assert.ok(checkCommand("cat <<EOF > x\nhi\nEOF\nnpm run dev"), "a command after a heredoc is still seen");
 });
 
 test("a leading cd decides which worktree is checked", () => {
