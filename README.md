@@ -37,6 +37,7 @@ equivalent so a busy port fails instead of silently moving.
 | `wts lock [--note "..."]` / `wts unlock` | Block other worktrees (agents) from `switch`/`stop` |
 | `wts watch [--orca] [--delay 3] [--ui float\|tray\|none]` | Follow the worktree you are looking at and switch to it (see below) |
 | `wts focus [path]` | Tell a running `wts watch` which worktree you are on (for editor integrations) |
+| `wts mcp` | MCP server for coding agents (see below) |
 
 `--force` only overrides another worktree's lock. Exit codes: `0` ok, `1` failure, `2` refused.
 
@@ -57,6 +58,40 @@ gray = stopped. Hover shows the full status; click opens the menu (the repo's wo
 to switch —, Lock/Unlock, Stop, Exit). Drag it anywhere; the position is remembered
 (`~/.wts/float-pos.json`). It never takes keyboard focus. `--ui tray` shows a tray icon with the
 same menu instead; `--ui none` shows nothing.
+
+## Agents: `wts mcp`
+
+`wts mcp` is an MCP server (stdio) for coding agents. The agent's CLI starts it in the agent's
+worktree; the agent sees the tools and the usage rules (server instructions: never start dev
+servers yourself, use `wts_switch`, stop and tell the user when refused).
+
+| Tool | |
+|---|---|
+| `wts_status` | Who runs each port, whether it is the agent's worktree, the lock |
+| `wts_switch` | Run the dev servers from the agent's worktree; waits until ready |
+| `wts_logs` | Last lines of the service logs |
+| `wts_stop` | Stop the repo's dev servers |
+
+No tool can override a lock: `wts lock` while you test, and agents get `refused` instead of
+switching your page away. In a repo without `wts.json` the tools answer "not configured", so the
+server can be registered for all projects.
+
+Register (Windows: call node with the absolute path to `dist/src/cli.js`, not the `wts.cmd` shim):
+
+```sh
+claude mcp add --scope user wts -- node C:\path\to\wts\dist\src\cli.js mcp
+```
+
+Codex (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.wts]
+command = "node"
+args = ["C:/path/to/wts/dist/src/cli.js", "mcp"]
+```
+
+`wts_switch` waits up to `readyTimeoutSec` (e.g. 180 s for a .NET backend); raise the client's
+tool timeout if needed (Claude Code: `MCP_TOOL_TIMEOUT` in ms).
 
 ## Safety rules
 
