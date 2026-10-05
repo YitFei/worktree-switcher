@@ -7,7 +7,30 @@ import { checkLock } from "../src/state.js";
 
 test("parses a valid config with defaults", () => {
   const c = parseConfig(JSON.stringify({ services: { web: { port: 5173, cmd: "npm run dev" } } }), "wts.json");
-  assert.deepEqual(c, { readyTimeoutSec: 120, services: { web: { dir: ".", port: 5173, cmd: "npm run dev" } } });
+  assert.deepEqual(c, { mode: "run", readyTimeoutSec: 120, services: { web: { dir: ".", port: 5173, cmd: "npm run dev" } } });
+});
+
+test("parses a proxy-mode config: targets instead of cmd", () => {
+  const c = parseConfig(
+    JSON.stringify({ mode: "proxy", services: { web: { port: 5173, targets: "5174-5199" }, api: { port: 5241, targets: "5242 - 5299" } } }),
+    "wts.json",
+  );
+  assert.equal(c.mode, "proxy");
+  assert.deepEqual(c.services.web.targets, { from: 5174, to: 5199 });
+  assert.deepEqual(c.services.api.targets, { from: 5242, to: 5299 });
+});
+
+test("rejects bad proxy configs", () => {
+  const svc = (s: object) => JSON.stringify({ mode: "proxy", services: s });
+  const bad = [
+    JSON.stringify({ mode: "bridge", services: { web: { port: 1, cmd: "x" } } }),
+    svc({ web: { port: 5173 } }),
+    svc({ web: { port: 5173, targets: "5199-5174" } }),
+    svc({ web: { port: 5173, targets: "5170-5180" } }),
+    svc({ web: { port: 5173, targets: "5174-5199" }, api: { port: 5241, targets: "5190-5250" } }),
+    svc({ web: { port: 5173, targets: "5174-5199" }, api: { port: 5180, targets: "5242-5299" } }),
+  ];
+  for (const text of bad) assert.throws(() => parseConfig(text, "wts.json"), WtsError, text);
 });
 
 test("rejects bad configs", () => {
