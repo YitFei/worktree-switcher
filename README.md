@@ -116,7 +116,7 @@ Floating button (Windows, default `--ui float`): an always-on-top pill `( ● de
 
 ## Agents: `wts mcp`
 
-`wts mcp` is an MCP server (stdio) for coding agents. The agent's CLI starts it in the agent's
+`wts mcp` is an MCP server (stdio) for coding agents, named `worktree-switcher` (the CLI is `wts`). The agent's CLI starts it in the agent's
 worktree; the agent sees the tools and the usage rules (server instructions: never start dev
 servers yourself, use `wts_switch`, stop and tell the user when refused).
 
@@ -134,13 +134,13 @@ server can be registered for all projects.
 Register (Windows: call node with the absolute path to `dist/src/cli.js`, not the `wts.cmd` shim):
 
 ```sh
-claude mcp add --scope user wts -- node C:\path\to\wts\dist\src\cli.js mcp
+claude mcp add --scope user worktree-switcher -- node C:\path\to\wts\dist\src\cli.js mcp
 ```
 
 Codex (`~/.codex/config.toml`):
 
 ```toml
-[mcp_servers.wts]
+[mcp_servers.worktree-switcher]
 command = "node"
 args = ["C:/path/to/wts/dist/src/cli.js", "mcp"]
 ```

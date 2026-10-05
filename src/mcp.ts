@@ -56,7 +56,7 @@ const pathArg = { path: z.string().optional().describe("Worktree path; defaults 
 type Result = { content: { type: "text"; text: string }[]; structuredContent: Record<string, unknown>; isError?: boolean };
 
 export function createServer(cwd = process.cwd()): McpServer {
-  const server = new McpServer({ name: "wts", version: "0.1.0" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "worktree-switcher", version: "0.1.0" }, { instructions: INSTRUCTIONS });
   const where = (p?: string) => p ?? cwd;
 
   server.registerTool(
