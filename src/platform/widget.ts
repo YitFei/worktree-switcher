@@ -18,13 +18,17 @@ export interface WidgetState {
   color: WidgetColor;
   locked: boolean;
   worktrees: { name: string; path: string; active: boolean }[];
+  /** Auto: follow the worktree selected in Orca / wts focus. Manual: switch only on request. */
+  auto: boolean;
+  /** What the restart button does here (run mode: restart; proxy mode: reconnect). */
+  restartTip: string;
   /** Shown once as a popup; a new id shows a new popup. */
   notify?: { id: number; title: string; text: string };
 }
 
 export type WidgetCommand =
   | { action: "switch"; path: string }
-  | { action: "lock" | "unlock" | "stop" | "exit" };
+  | { action: "lock" | "unlock" | "stop" | "exit" | "restart" | "auto" | "manual" };
 
 /** NotifyIcon.Text throws above 63 characters on .NET Framework. */
 export function fitTooltip(text: string): string {
@@ -125,6 +129,7 @@ $PosFile = __POS__
 $ParentPid = __PARENT__
 $colors = @{ green = '#2EA043'; yellow = '#D29922'; red = '#DA3633'; gray = '#8B949E' }
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
+$script:auto = $false
 
 function Send-Cmd($action, $path) {
   $o = @{ action = $action; time = [DateTimeOffset]::Now.ToUnixTimeMilliseconds() }
@@ -143,6 +148,14 @@ function Build-Menu($s) {
     $item.add_Click({ param($sender) Send-Cmd 'switch' $sender.Tag })
   }
   if (@($s.worktrees).Count -gt 0) { [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) }
+  $r = $menu.Items.Add([string][char]0x21BB + ' Restart')
+  $r.ToolTipText = $s.restartTip
+  $r.add_Click({ Send-Cmd 'restart' })
+  $a = New-Object System.Windows.Forms.ToolStripMenuItem 'Auto-switch (follow Orca)'
+  $a.Checked = [bool]$s.auto
+  $a.add_Click({ if ($script:auto) { Send-Cmd 'manual' } else { Send-Cmd 'auto' } })
+  [void]$menu.Items.Add($a)
+  [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
   if ($s.locked) { [void]$menu.Items.Add('Unlock').add_Click({ Send-Cmd 'unlock' }) }
   else { [void]$menu.Items.Add('Lock').add_Click({ Send-Cmd 'lock' }) }
   [void]$menu.Items.Add('Stop').add_Click({ Send-Cmd 'stop' })
@@ -191,7 +204,7 @@ $ni.Text = 'wts'
 $ni.Visible = $true
 $ni.ContextMenuStrip = $menu
 
-function Apply-State($s) { $ni.Icon = $icons[$s.color]; $ni.Text = $s.tooltip }
+function Apply-State($s) { $script:auto = [bool]$s.auto; $ni.Icon = $icons[$s.color]; $ni.Text = $s.tooltip }
 function Show-Notice($title, $text) { $ni.ShowBalloonTip(4000, $title, $text, 'Info') }
 function Close-Widget { $ni.Visible = $false }
 
@@ -208,7 +221,8 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
-// Small always-on-top pill that never takes focus. Click = Clicked, drag = move then Moved.
+// Always-on-top pill that never takes focus:  ( ● name │ ↻ │ Manual )
+// Segments: 0 = name (menu), 1 = restart, 2 = Auto/Manual toggle. Drag anywhere to move.
 public class WtsPill : Form {
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
 
@@ -218,11 +232,19 @@ public class WtsPill : Form {
         using (Graphics g = Graphics.FromHwnd(IntPtr.Zero)) return g.DpiX / 96f;
     }
 
-    public float K = 1f; // DPI scale
+    public float K = 1f;
     public event EventHandler Clicked;
+    public event EventHandler RestartClicked;
+    public event EventHandler ModeClicked;
     public event EventHandler Moved;
     Color dot = Color.Gray;
     string text = "wts";
+    bool auto;
+    string tipMain = "", tipRestart = "", tipMode = "";
+    Rectangle rMain, rRestart, rMode;
+    int hover = -1;
+    readonly ToolTip tip = new ToolTip();
+    Font small, glyph;
     Point down;
     bool pressed, dragging;
 
@@ -235,11 +257,14 @@ public class WtsPill : Form {
         BackColor = Color.FromArgb(36, 37, 41);
         ForeColor = Color.FromArgb(240, 240, 240);
         Font = new Font("Segoe UI", 10f, FontStyle.Regular);
-        Opacity = 0.92;
+        small = new Font("Segoe UI", 8.5f, FontStyle.Regular);
+        glyph = new Font("Segoe UI Symbol", 11f, FontStyle.Regular);
+        Opacity = 0.94;
         DoubleBuffered = true;
         Cursor = Cursors.Hand;
         Height = S(32);
-        SetState(Color.Gray, "wts");
+        tip.ShowAlways = true;
+        SetState(Color.Gray, "wts", false);
     }
 
     public int S(int px) { return (int)Math.Round(px * K); }
@@ -254,10 +279,20 @@ public class WtsPill : Form {
         }
     }
 
-    public void SetState(Color c, string t) {
-        dot = c;
-        text = t;
-        int w = S(34) + TextRenderer.MeasureText(t, Font).Width + S(14);
+    public void SetTips(string main, string restart, string mode) {
+        tipMain = main; tipRestart = restart; tipMode = mode;
+        UpdateTip();
+    }
+
+    public void SetState(Color c, string t, bool a) {
+        dot = c; text = t; auto = a;
+        int wMain = S(32) + TextRenderer.MeasureText(t, Font).Width + S(8);
+        int wRestart = S(30);
+        int wMode = TextRenderer.MeasureText("Manual", small).Width + S(18);
+        rMain = new Rectangle(0, 0, wMain, Height);
+        rRestart = new Rectangle(wMain, 0, wRestart, Height);
+        rMode = new Rectangle(wMain + wRestart, 0, wMode, Height);
+        int w = wMain + wRestart + wMode + S(4);
         Rectangle area = Screen.FromPoint(Location).WorkingArea;
         int right = Left + Width;
         Width = w;
@@ -279,26 +314,55 @@ public class WtsPill : Form {
         Top = Math.Max(a.Top, Math.Min(Top, a.Bottom - Height));
     }
 
+    int Seg(Point pt) {
+        if (rRestart.Contains(pt)) return 1;
+        if (pt.X >= rMode.Left) return 2;
+        return 0;
+    }
+
+    void UpdateTip() {
+        tip.SetToolTip(this, hover == 1 ? tipRestart : hover == 2 ? tipMode : tipMain);
+    }
+
     protected override void OnPaint(PaintEventArgs e) {
         Graphics g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
+        if (hover >= 0) {
+            Rectangle h = hover == 0 ? rMain : hover == 1 ? rRestart : new Rectangle(rMode.Left, 0, Width - rMode.Left, Height);
+            using (SolidBrush hb = new SolidBrush(Color.FromArgb(58, 60, 66))) g.FillRectangle(hb, h);
+        }
         using (SolidBrush b = new SolidBrush(dot)) g.FillEllipse(b, S(12), (Height - S(12)) / 2, S(12), S(12));
         Size s = TextRenderer.MeasureText(text, Font);
         TextRenderer.DrawText(g, text, Font, new Point(S(32), (Height - s.Height) / 2), ForeColor);
+        using (Pen sep = new Pen(Color.FromArgb(78, 80, 86), 1)) {
+            g.DrawLine(sep, rRestart.Left, S(8), rRestart.Left, Height - S(8));
+            g.DrawLine(sep, rMode.Left, S(8), rMode.Left, Height - S(8));
+        }
+        TextRenderer.DrawText(g, "↻", glyph, rRestart, ForeColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        Color mc = auto ? Color.FromArgb(87, 199, 110) : Color.FromArgb(170, 174, 180);
+        TextRenderer.DrawText(g, auto ? "Auto" : "Manual", small, rMode, mc, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
     }
 
     protected override void OnMouseDown(MouseEventArgs e) { down = e.Location; pressed = true; dragging = false; }
 
     protected override void OnMouseMove(MouseEventArgs e) {
-        if (!pressed) return;
-        if (!dragging && (Math.Abs(e.X - down.X) > S(3) || Math.Abs(e.Y - down.Y) > S(3))) dragging = true;
-        if (dragging) Location = new Point(Left + e.X - down.X, Top + e.Y - down.Y);
+        if (pressed) {
+            if (!dragging && (Math.Abs(e.X - down.X) > S(3) || Math.Abs(e.Y - down.Y) > S(3))) dragging = true;
+            if (dragging) Location = new Point(Left + e.X - down.X, Top + e.Y - down.Y);
+            return;
+        }
+        int s = Seg(e.Location);
+        if (s != hover) { hover = s; UpdateTip(); Invalidate(); }
     }
+
+    protected override void OnMouseLeave(EventArgs e) { hover = -1; Invalidate(); }
 
     protected override void OnMouseUp(MouseEventArgs e) {
         pressed = false;
-        if (dragging) { dragging = false; ClampToScreen(); if (Moved != null) Moved(this, EventArgs.Empty); }
-        else if (Clicked != null) Clicked(this, EventArgs.Empty);
+        if (dragging) { dragging = false; ClampToScreen(); if (Moved != null) Moved(this, EventArgs.Empty); return; }
+        int s = e.Button == MouseButtons.Right ? 0 : Seg(e.Location);
+        EventHandler h = s == 1 ? RestartClicked : s == 2 ? ModeClicked : Clicked;
+        if (h != null) h(this, EventArgs.Empty);
     }
 }
 '@
@@ -313,21 +377,35 @@ try {
 } catch {}
 $form.ClampToScreen()
 
-$tip = New-Object System.Windows.Forms.ToolTip
-$tip.ShowAlways = $true
 $notice = New-Object System.Windows.Forms.ToolTip
 $notice.ShowAlways = $true
 $notice.IsBalloon = $true
 $notice.ToolTipIcon = 'Info'
 
-$form.add_Clicked({ $menu.Show($form, (New-Object System.Drawing.Point(0, 0)), 'AboveRight') })
+# The pill never takes focus, so Windows never tells the menu to close. Close it ourselves when
+# the mouse is pressed outside the menu and the pill.
+$menuWatch = New-Object System.Windows.Forms.Timer
+$menuWatch.Interval = 50
+$menuWatch.add_Tick({
+  if (-not $menu.Visible) { $menuWatch.Stop(); return }
+  if ([System.Windows.Forms.Control]::MouseButtons -ne [System.Windows.Forms.MouseButtons]::None) {
+    $p = [System.Windows.Forms.Cursor]::Position
+    if (-not $menu.Bounds.Contains($p) -and -not $form.Bounds.Contains($p)) { $menu.Close() }
+  }
+})
+
+$form.add_Clicked({ $menu.Show($form, (New-Object System.Drawing.Point(0, 0)), 'AboveRight'); $menuWatch.Start() })
+$form.add_RestartClicked({ Send-Cmd 'restart' })
+$form.add_ModeClicked({ if ($script:auto) { Send-Cmd 'manual' } else { Send-Cmd 'auto' } })
 $form.add_Moved({
   [System.IO.File]::WriteAllText($script:PosFile, (@{ x = $form.Left; y = $form.Top } | ConvertTo-Json -Compress))
 })
 
 function Apply-State($s) {
-  $form.SetState([System.Drawing.ColorTranslator]::FromHtml($colors[$s.color]), $s.label)
-  $tip.SetToolTip($form, $s.tooltip)
+  $script:auto = [bool]$s.auto
+  $form.SetState([System.Drawing.ColorTranslator]::FromHtml($colors[$s.color]), $s.label, $script:auto)
+  $modeTip = if ($script:auto) { 'Auto: follows the worktree you select in Orca. Click to switch to Manual.' } else { 'Manual: switch from this menu, wts switch or an agent. Click to switch to Auto.' }
+  $form.SetTips($s.tooltip, $s.restartTip, $modeTip)
 }
 function Show-Notice($title, $text) {
   $notice.ToolTipTitle = $title

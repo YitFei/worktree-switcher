@@ -27,9 +27,11 @@ Usage (run inside any worktree that has a wts.json):
   wts logs [service] [-n 50] [-f]
   wts lock [--note "..."] [--force]
   wts unlock [--force]
-  wts watch [--orca] [--delay 3] [--orca-db <file>] [--ui float|tray|none]
-                                 follow the worktree you are looking at and switch to it;
-                                 shows a floating button (hover = status, click = menu)
+  wts watch [--auto|--manual] [--delay 3] [--no-orca] [--ui float|tray|none]
+                                 floating button (status, menu, restart, Auto/Manual) and the
+                                 proxy for proxy-mode repos; Auto follows the worktree you select
+                                 in Orca, Manual (default, remembered) switches only on request
+  wts restart [--force]          run mode: restart this worktree's servers
   wts focus [path]               tell a running \`wts watch\` which worktree you are on
   wts init --mode run|proxy [--write] [--overwrite]
                                  detect the dev servers and propose (or write) a wts.json
@@ -49,7 +51,10 @@ async function main(argv: string[]): Promise<void> {
       n: { type: "string", short: "n", default: "50" },
       follow: { type: "boolean", short: "f", default: false },
       help: { type: "boolean", short: "h", default: false },
-      orca: { type: "boolean", default: false },
+      orca: { type: "boolean" },
+      "no-orca": { type: "boolean", default: false },
+      auto: { type: "boolean", default: false },
+      manual: { type: "boolean", default: false },
       "orca-db": { type: "string" },
       delay: { type: "string", default: "3" },
       ui: { type: "string", default: "float" },
@@ -89,12 +94,24 @@ async function main(argv: string[]): Promise<void> {
       if (!Number.isFinite(delaySec) || delaySec < 0) throw new WtsError("--delay must be a non-negative number", 2);
       const ui = values["no-tray"] ? "none" : values.ui;
       if (ui !== "float" && ui !== "tray" && ui !== "none") throw new WtsError("--ui must be float, tray or none", 2);
-      return watch({ orca: values.orca, orcaDb: values["orca-db"], delaySec, ui });
+      if (values.auto && values.manual) throw new WtsError("--auto and --manual are exclusive", 2);
+      const orca = values["no-orca"] ? false : values.orca ? true : undefined;
+      const auto = values.auto ? true : values.manual ? false : undefined;
+      return watch({ orca, auto, orcaDb: values["orca-db"], delaySec, ui });
     }
     case "focus":
       return focus(arg ?? cwd);
     case "proxy":
       return runProxy(loadContextWithConfig(cwd));
+    case "restart": {
+      const ctx = loadContextWithConfig(cwd);
+      if (ctx.config.mode === "proxy") {
+        console.log("proxy mode: wts does not run your servers. Restart the server in its own terminal; the proxy picks it up by itself.");
+        return;
+      }
+      await switchTo(ctx, values.force, { restart: true });
+      return;
+    }
     case "port": {
       const ctx = loadContextWithConfig(cwd);
       if (ctx.config.mode !== "proxy") throw new WtsError("`wts port` is for proxy mode; in run mode wts starts the servers on the fixed ports", 2);

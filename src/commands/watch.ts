@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { CONFIG_FILE } from "../config.js";
 import { inspect, label, loadContext, loadContextWithConfig, ports, sleep, type CtxWithConfig } from "../context.js";
@@ -17,7 +18,10 @@ const POLL_MS = 500;
 const TRAY_REFRESH_MS = 10_000;
 
 export interface WatchOptions {
-  orca: boolean;
+  /** Follow Orca's selection. undefined = whenever Orca's state DB exists. */
+  orca?: boolean;
+  /** Auto-switch. undefined = the last choice (default Manual). */
+  auto?: boolean;
   orcaDb?: string;
   delaySec: number;
   /** On-screen status: floating button, tray icon, or nothing. */
@@ -49,17 +53,41 @@ export class Debouncer {
   }
 }
 
-/** Follow the worktree the user is looking at and switch the dev servers to it. */
+const PREFS = () => path.join(os.homedir(), ".wts", "watch.json");
+
+/** Auto / Manual, remembered across runs. Default Manual. */
+export function loadAuto(): boolean {
+  try {
+    return (JSON.parse(fs.readFileSync(PREFS(), "utf8")) as { auto?: boolean }).auto === true;
+  } catch {
+    return false;
+  }
+}
+
+export function saveAuto(auto: boolean): void {
+  fs.mkdirSync(path.dirname(PREFS()), { recursive: true });
+  fs.writeFileSync(PREFS(), JSON.stringify({ auto }));
+}
+
+/**
+ * Show the floating button, run the proxy for proxy-mode repos, and — in Auto mode — switch the
+ * dev servers to the worktree the user settles on. Manual mode (the default) only switches on
+ * request: the button's menu, `wts switch`, or an agent.
+ */
 export async function watch(opts: WatchOptions): Promise<void> {
   stampConsole();
   const start = Date.now();
   const sources: Source[] = [
     { name: "wts focus", read: () => { const f = readFocus(); return f && f.time >= start ? f.worktree : null; } },
   ];
-  if (opts.orca) sources.push({ name: "orca", read: await orcaReader(opts.orcaDb ?? defaultOrcaDb()) });
-  console.log(`watching ${sources.map((s) => s.name).join(" + ")}; switch after ${opts.delaySec}s on the same worktree; Ctrl+C to stop`);
+  const orcaDb = opts.orcaDb ?? defaultOrcaDb();
+  if (opts.orca === true || (opts.orca === undefined && fs.existsSync(orcaDb))) {
+    sources.push({ name: "orca", read: await orcaReader(orcaDb) });
+  }
+  if (opts.auto !== undefined) saveAuto(opts.auto);
 
-  const w = new Watcher(opts.ui === "none" ? null : new Widget(opts.ui));
+  const w = new Watcher(opts.ui === "none" ? null : new Widget(opts.ui), opts.auto ?? loadAuto());
+  console.log(`following ${sources.map((s) => s.name).join(" + ")}; ${w.auto ? "Auto" : "Manual"} mode${w.auto ? ` (switch after ${opts.delaySec}s on the same worktree)` : " (switch from the button, wts switch or an agent)"}; Ctrl+C to stop`);
   await w.start();
 
   const last = new Map<string, string | null>();
@@ -79,7 +107,8 @@ export async function watch(opts: WatchOptions): Promise<void> {
       if (value) target = value;
     }
     const ready = debouncer.update(target ? normPath(target) : null, Date.now());
-    if (ready && target) await w.switchTo(target, false);
+    // Manual mode still tracks the selection, so turning Auto on follows the *next* worktree you settle on.
+    if (ready && target && w.auto) await w.switchTo(target, false);
     await w.tick();
     await sleep(POLL_MS);
   }
@@ -96,7 +125,10 @@ class Watcher {
   /** Proxy-mode repos: one forwarder each, keyed by the repo's state dir. */
   private readonly proxies = new Map<string, Forwarder>();
 
-  constructor(private readonly widget: Widget | null) {
+  constructor(
+    private readonly widget: Widget | null,
+    public auto: boolean,
+  ) {
     try {
       this.repo = loadContextWithConfig(process.cwd());
     } catch {
@@ -107,7 +139,7 @@ class Watcher {
   async start(): Promise<void> {
     if (this.repo) await this.ensureProxy(this.repo);
     if (!this.widget) return;
-    this.widget.start({ label: "starting…", tooltip: "wts: starting…", color: "gray", locked: false, worktrees: [] });
+    this.widget.start({ label: "starting…", tooltip: "wts: starting…", color: "gray", locked: false, worktrees: [], auto: this.auto, restartTip: "" });
     this.refresh();
   }
 
@@ -156,7 +188,14 @@ class Watcher {
     console.log(`widget: ${cmd.action}${cmd.action === "switch" ? ` ${cmd.path}` : ""}`);
     if (cmd.action === "exit") process.exit(0);
     if (cmd.action === "switch") return this.switchTo(cmd.path, true);
+    if (cmd.action === "auto" || cmd.action === "manual") {
+      this.auto = cmd.action === "auto";
+      saveAuto(this.auto);
+      console.log(`${this.auto ? "Auto" : "Manual"} mode`);
+      return this.refresh();
+    }
     if (!this.repo) return;
+    if (cmd.action === "restart") return this.restart(this.repo);
     // Act as the running worktree, so its own lock never blocks Lock/Stop from the widget.
     const where = this.owner ?? this.repo.current;
     try {
@@ -170,13 +209,50 @@ class Watcher {
     }
   }
 
+  /**
+   * ↻. run mode: stop the running worktree's servers and start them again from wts.json.
+   * proxy mode: wts did not start those servers, so it re-detects them and drops open connections
+   * (the page reloads from them); restarting a server is done in its own terminal.
+   */
+  private async restart(repo: CtxWithConfig): Promise<void> {
+    if (repo.config.mode === "proxy") {
+      await this.proxies.get(repo.store.dir)?.reconnect();
+      console.log("reconnected (proxy mode)");
+      return this.refresh(undefined, undefined, {
+        title: "wts: reconnected",
+        text: "Proxy mode: servers re-detected, connections reset. To restart a server, restart it in its own terminal.",
+      });
+    }
+    const where = this.owner ?? repo.current;
+    let ctx: CtxWithConfig;
+    try {
+      ctx = loadContextWithConfig(where);
+    } catch (e) {
+      return this.refresh(undefined, undefined, { title: "wts: restart failed", text: (e as Error).message });
+    }
+    this.refresh("switching", `↻ ${path.basename(where)}…`);
+    try {
+      await switchTo(ctx, false, { restart: true });
+      this.refresh();
+    } catch (e) {
+      console.log(`restart failed: ${(e as Error).message}`);
+      this.refresh(undefined, undefined, { title: `wts: restart of ${path.basename(where)} failed`, text: (e as Error).message });
+    }
+  }
+
+  private restartTip(repo: CtxWithConfig | null): string {
+    if (!repo) return "Nothing to restart yet";
+    if (repo.config.mode === "proxy") return "Proxy mode: re-detect servers and reconnect (restart a server in its own terminal)";
+    return this.owner ? `Restart ${path.basename(this.owner)}'s servers` : "Restart: start this worktree's servers";
+  }
+
   /** Recompute the widget from the real port owners (a PowerShell query, ~1 s). */
   private refresh(phase?: "switching", text?: string, notify?: { title: string; text: string }): void {
     this.lastRefresh = Date.now();
     if (!this.widget) return;
     const n = notify ? { id: ++this.notifyId, ...notify } : undefined;
     if (!this.repo) {
-      this.widget.update({ label: "waiting", tooltip: "wts: waiting for a worktree with wts.json", color: "gray", locked: false, worktrees: [], notify: n });
+      this.widget.update({ label: "waiting", tooltip: "wts: waiting for a worktree with wts.json", color: "gray", locked: false, worktrees: [], auto: this.auto, restartTip: this.restartTip(null), notify: n });
       return;
     }
     try {
@@ -184,10 +260,11 @@ class Watcher {
     } catch {
       // keep the previous context
     }
-    this.widget.update({ ...this.state(this.repo, phase, text), notify: n });
+    const s = this.state(this.repo, phase, text);
+    this.widget.update({ ...s, auto: this.auto, restartTip: this.restartTip(this.repo), notify: n });
   }
 
-  private state(repo: CtxWithConfig, phase?: "switching", text?: string): WidgetState {
+  private state(repo: CtxWithConfig, phase?: "switching", text?: string): Omit<WidgetState, "auto" | "restartTip"> {
     if (repo.config.mode === "proxy") return this.proxyState(repo, phase, text);
     const portList = ports(repo).map((p) => `:${p}`).join(" ");
     const snap = snapshot(ports(repo));
@@ -217,7 +294,7 @@ class Watcher {
   }
 
   /** Proxy mode: who the fixed ports forward to, from the forwarder's last discovery (no extra query). */
-  private proxyState(repo: CtxWithConfig, phase?: "switching", text?: string): WidgetState {
+  private proxyState(repo: CtxWithConfig, phase?: "switching", text?: string): Omit<WidgetState, "auto" | "restartTip"> {
     const selected = repo.store.readState()?.owner ?? null;
     const lockInfo = repo.store.readLock();
     this.owner = selected;

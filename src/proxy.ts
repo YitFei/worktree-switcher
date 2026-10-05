@@ -62,6 +62,12 @@ export class Forwarder {
     return this.refresh();
   }
 
+  /** ↻ in proxy mode: re-detect the servers and drop open connections so the page reloads from them. */
+  async reconnect(): Promise<void> {
+    await this.refresh();
+    this.closeConnections();
+  }
+
   /**
    * Take the fixed port, unless something already serves it. Windows lets a specific-address bind
    * (127.0.0.1, ::1) and wildcard binds (0.0.0.0, [::]) of the same port live side by side in

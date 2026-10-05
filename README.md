@@ -71,30 +71,44 @@ targets the fixed API port, it reaches the selected worktree's backend too, with
 | `wts proxy` | proxy mode: run the forwarder (also run by `wts watch`) |
 | `wts logs [service] [-n 50] [-f]` | Show / follow service logs |
 | `wts lock [--note "..."]` / `wts unlock` | Block other worktrees (agents) from `switch`/`stop` |
-| `wts watch [--orca] [--delay 3] [--ui float\|tray\|none]` | Follow the worktree you are looking at and switch to it (see below) |
+| `wts watch [--auto\|--manual] [--delay 3] [--no-orca] [--ui float\|tray\|none]` | Floating button + proxy; Auto mode follows the worktree you select (see below) |
+| `wts restart [--force]` | run mode: restart this worktree's servers |
+| `wts port [service]` | proxy mode: the port this worktree runs a service on, and how to start it |
+| `wts init --mode run\|proxy [--write]` | Detect the dev servers and propose / write a `wts.json` |
 | `wts focus [path]` | Tell a running `wts watch` which worktree you are on (for editor integrations) |
 | `wts mcp` | MCP server for coding agents (see below) |
 | `wts hook` | Claude Code PreToolUse guard for agents (see below) |
 
 `--force` only overrides another worktree's lock. Exit codes: `0` ok, `1` failure, `2` refused.
 
-## Auto-switch: `wts watch`
+## `wts watch`: floating button, Manual / Auto
 
-`wts watch` switches the dev servers to the worktree you are looking at, once you stay on it for
-`--delay` seconds (default 3). Worktrees without `wts.json` are ignored; locks are respected.
+`wts watch` shows a floating button, runs the proxy for proxy-mode repos, and has two modes:
+
+- **Manual** (default): switch only when you ask — the button's menu, `wts switch`, or an agent.
+- **Auto**: switch to the worktree you select (Orca) or `wts focus` once you stay on it for
+  `--delay` seconds (default 3). Turning Auto on follows the *next* worktree you settle on.
+
+Toggle with the button's Manual/Auto segment or `--auto` / `--manual`; the choice is remembered
+(`~/.wts/watch.json`). Worktrees without `wts.json` are ignored; locks are respected.
 
 Focus sources:
 - `wts focus <path>` — generic; a VS Code extension or any script can call it.
-- `--orca` — the workspace selected in Orca, read from Orca's local state DB
-  (`%APPDATA%\orca\profiles\local-default\profile-state.db`). This is Orca's internal format,
-  not a public API, and may break with an Orca update.
+- Orca — the workspace selected in Orca, read from Orca's local state DB
+  (`%APPDATA%\orca\profiles\local-default\profile-state.db`) whenever it exists (`--no-orca` to
+  turn off). This is Orca's internal format, not a public API, and may break with an Orca update.
 
-Floating button (Windows, default `--ui float`): a small always-on-top pill, `● demo1 🔒`.
-Dot colour: green = running, yellow = switching, red = port held by another program or error,
-gray = stopped. Hover shows the full status; click opens the menu (the repo's worktrees — click
-to switch —, Lock/Unlock, Stop, Exit). Drag it anywhere; the position is remembered
-(`~/.wts/float-pos.json`). It never takes keyboard focus. `--ui tray` shows a tray icon with the
-same menu instead; `--ui none` shows nothing.
+Floating button (Windows, default `--ui float`): an always-on-top pill `( ● demo1 🔒 │ ↻ │ Manual )`.
+- **Name** — click (or right-click anywhere) for the menu: the repo's worktrees (click to switch),
+  Restart, Auto-switch, Lock/Unlock, Stop, Exit. The menu closes when you click elsewhere.
+- **↻** — run mode: restart the running worktree's servers. Proxy mode: wts did not start your
+  servers, so it re-detects them and resets connections; restart a server in its own terminal.
+- **Manual / Auto** — toggle.
+- Dot colour: green = running, yellow = switching, red = port held by another program / server
+  missing / error, gray = stopped. Hover any segment for details. Drag it anywhere; the position
+  is remembered (`~/.wts/float-pos.json`). It never takes keyboard focus.
+
+`--ui tray` shows a tray icon with the same menu instead; `--ui none` shows nothing.
 
 ## Agents: `wts mcp`
 

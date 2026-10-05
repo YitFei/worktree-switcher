@@ -144,6 +144,23 @@ export function createServer(cwd = process.cwd()): McpServer {
   );
 
   server.registerTool(
+    "wts_restart",
+    {
+      description: "Run mode: restart your worktree's dev servers (stop and start them again from wts.json), e.g. after changing config the dev server does not hot-reload. Refused when another worktree holds the lock. In proxy mode it only explains: restart your own server process.",
+      inputSchema: pathArg,
+    },
+    ({ path }) =>
+      run(where(path), async (ctx) => {
+        if (ctx.config.mode === "proxy") {
+          console.log("proxy mode: wts does not run the servers. Restart your server process yourself (it keeps its assigned port); the proxy picks it up.");
+          return { mode: "proxy", restarted: false };
+        }
+        await switchTo(ctx, false, { restart: true });
+        return { mode: "run", restarted: true, worktree: ctx.current };
+      }),
+  );
+
+  server.registerTool(
     "wts_port",
     {
       description:

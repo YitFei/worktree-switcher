@@ -46,3 +46,25 @@ test("widget tooltip is cut to the 63-character NotifyIcon limit", async () => {
   assert.equal(long.length, 63);
   assert.ok(long.endsWith("…"));
 });
+
+test("Auto/Manual is remembered; Manual is the default", async () => {
+  const os = await import("node:os");
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const { loadAuto, saveAuto } = await import("../src/commands/watch.js");
+  const saved = { USERPROFILE: process.env.USERPROFILE, HOME: process.env.HOME };
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wts-home-"));
+  process.env.USERPROFILE = tmp;
+  process.env.HOME = tmp;
+  try {
+    assert.equal(loadAuto(), false, "default Manual");
+    saveAuto(true);
+    assert.equal(loadAuto(), true);
+    saveAuto(false);
+    assert.equal(loadAuto(), false);
+  } finally {
+    process.env.USERPROFILE = saved.USERPROFILE;
+    process.env.HOME = saved.HOME;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

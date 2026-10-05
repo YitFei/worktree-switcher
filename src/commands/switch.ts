@@ -15,7 +15,11 @@ const RUNNER = fileURLToPath(new URL("../runner.js", import.meta.url));
 const POLL_MS = 1000;
 const TAIL_LINES = 40;
 
-export async function switchTo(ctx: CtxWithConfig, force: boolean): Promise<SelectResult | void> {
+/**
+ * Run the dev servers from `ctx.current`. With `restart`, servers already running from this
+ * worktree are stopped and started again (the ↻ button) instead of being left alone.
+ */
+export async function switchTo(ctx: CtxWithConfig, force: boolean, opts: { restart?: boolean } = {}): Promise<SelectResult | void> {
   if (ctx.config.mode === "proxy") return selectWorktree(ctx, force);
   checkLock(ctx.store.readLock(), ctx.current, force);
 
@@ -28,7 +32,7 @@ export async function switchTo(ctx: CtxWithConfig, force: boolean): Promise<Sele
     const lines = unknown.map((s) => `  ${s.service} :${s.port} — ${describe(s.pid!, snap.procs)}`);
     throw new WtsError(`port held by a process that is not a worktree of this repo; not killing it:\n${lines.join("\n")}`, 2);
   }
-  if (statuses.every((s) => s.worktree !== null && samePath(s.worktree, ctx.current))) {
+  if (!opts.restart && statuses.every((s) => s.worktree !== null && samePath(s.worktree, ctx.current))) {
     console.log(`already running from ${label(ctx.current, ctx.current)}`);
     return;
   }
@@ -37,9 +41,9 @@ export async function switchTo(ctx: CtxWithConfig, force: boolean): Promise<Sele
   if (previous.length === 0) {
     console.log("ports are free");
   } else {
-    for (const wt of previous) console.log(`previous owner: ${label(wt, ctx.current)}`);
+    for (const wt of previous) console.log(`${opts.restart && samePath(wt, ctx.current) ? "restarting" : "previous owner"}: ${label(wt, ctx.current)}`);
     await stopOwned(ctx, statuses, snap.procs, state);
-    console.log("stopped previous services");
+    console.log("stopped");
   }
 
   const started = start(ctx);
