@@ -1,8 +1,10 @@
 import { describe } from "../owner.js";
 import { snapshot } from "../platform/win.js";
 import { inspect, label, ports, type CtxWithConfig } from "../context.js";
+import { proxyStatus } from "./select.js";
 
-export function status(ctx: CtxWithConfig): void {
+export async function status(ctx: CtxWithConfig): Promise<void> {
+  if (ctx.config.mode === "proxy") return proxyStatus(ctx);
   const snap = snapshot(ports(ctx));
   const state = ctx.store.readState();
   const lock = ctx.store.readLock();

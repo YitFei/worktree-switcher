@@ -11,12 +11,15 @@ import { watch } from "./commands/watch.js";
 import { focus } from "./commands/focus.js";
 import { serveMcp } from "./mcp.js";
 import { runHook } from "./hook.js";
+import { runProxy } from "./commands/select.js";
 
 const USAGE = `wts — switch which git worktree owns the repo's dev-server ports
 
 Usage (run inside any worktree that has a wts.json):
   wts status                     who owns each configured port
-  wts switch [--force]           stop the current owner, start services from this worktree
+  wts switch [--force]           run mode: stop the current owner, start this worktree's services
+                                 proxy mode: forward the fixed ports to this worktree
+  wts proxy                      proxy mode: run the forwarder (wts watch also runs it)
   wts stop [--force]             stop services owned by worktrees of this repo
   wts logs [service] [-n 50] [-f]
   wts lock [--note "..."] [--force]
@@ -60,7 +63,8 @@ async function main(argv: string[]): Promise<void> {
       return status(loadContextWithConfig(cwd));
     case "switch":
     case "up":
-      return switchTo(loadContextWithConfig(cwd), values.force);
+      await switchTo(loadContextWithConfig(cwd), values.force);
+      return;
     case "stop":
       return stop(loadContextWithConfig(cwd), values.force);
     case "logs": {
@@ -81,6 +85,8 @@ async function main(argv: string[]): Promise<void> {
     }
     case "focus":
       return focus(arg ?? cwd);
+    case "proxy":
+      return runProxy(loadContextWithConfig(cwd));
     case "mcp":
       return serveMcp();
     case "hook":

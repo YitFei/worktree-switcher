@@ -9,12 +9,14 @@ import { checkLock, type ServiceState, type State } from "../state.js";
 import { inspect, label, ports, sleep, type CtxWithConfig } from "../context.js";
 import { tail } from "./logs.js";
 import { stopOwned } from "./stop.js";
+import { selectWorktree, type SelectResult } from "./select.js";
 
 const RUNNER = fileURLToPath(new URL("../runner.js", import.meta.url));
 const POLL_MS = 1000;
 const TAIL_LINES = 40;
 
-export async function switchTo(ctx: CtxWithConfig, force: boolean): Promise<void> {
+export async function switchTo(ctx: CtxWithConfig, force: boolean): Promise<SelectResult | void> {
+  if (ctx.config.mode === "proxy") return selectWorktree(ctx, force);
   checkLock(ctx.store.readLock(), ctx.current, force);
 
   const snap = snapshot(ports(ctx));

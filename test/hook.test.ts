@@ -59,7 +59,7 @@ test("a leading cd decides which worktree is checked", () => {
 });
 
 test("only Bash/PowerShell calls in a wts-managed worktree are blocked", () => {
-  const managed = (dir: string) => dir.startsWith("C:\\managed");
+  const managed = (dir: string) => (dir.startsWith("C:\\managed") ? ("run" as const) : null);
   const run = (tool: string, cwd: string, command = "npm run dev") => decide({ tool_name: tool, cwd, tool_input: { command } }, managed);
   assert.equal(run("Bash", "C:\\managed\\wt").code, 2);
   assert.match(run("PowerShell", "C:\\managed\\wt").message!, /wts_switch/);
@@ -67,4 +67,12 @@ test("only Bash/PowerShell calls in a wts-managed worktree are blocked", () => {
   assert.equal(run("Read", "C:\\managed\\wt").code, 0);
   assert.equal(run("Bash", "C:\\managed\\wt", "npm test").code, 0);
   assert.equal(decide({ tool_name: "Bash" }, managed).code, 0);
+});
+
+test("proxy mode: agents start their own dev servers, lock overrides stay blocked", () => {
+  const proxy = () => "proxy" as const;
+  const run = (command: string) => decide({ tool_name: "Bash", cwd: "C:\wt", tool_input: { command } }, proxy);
+  assert.equal(run("npm run dev").code, 0);
+  assert.equal(run("dotnet watch run").code, 0);
+  assert.equal(run("wts switch --force").code, 2);
 });

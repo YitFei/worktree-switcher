@@ -48,11 +48,16 @@ export class Forwarder {
     this.closeConnections();
   }
 
-  /** Worktree currently forwarded to, and each service's port there (null = not running). */
-  view(): { selected: string | null; ports: Record<string, number | null> } {
+  /** Each service's port in `worktree` from the last discovery (null = not running there). */
+  portsFor(worktree: string): Record<string, number | null> {
     const ports: Record<string, number | null> = {};
-    for (const name of Object.keys(this.deps.services)) ports[name] = this.current ? portOf(this.found, name, this.current) : null;
-    return { selected: this.current, ports };
+    for (const name of Object.keys(this.deps.services)) ports[name] = portOf(this.found, name, worktree);
+    return ports;
+  }
+
+  /** Discover again now (e.g. right after a switch) and wait for it. */
+  rediscover(): Promise<void> {
+    return this.refresh();
   }
 
   private listen(name: string, port: number, host: string): void {

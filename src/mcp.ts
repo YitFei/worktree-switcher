@@ -21,7 +21,10 @@ worktree of a repo runs them at a time. In such a repo:
 - If a tool result says refused (locked by another worktree, or a port held by a program wts does not manage),
   stop and tell the user the reason. Do not work around it.
 - After a failed start, read wts_logs to find the cause.
-- Tools answer "not configured" in a repo without wts.json; then start servers the usual way.`;
+- Tools answer "not configured" in a repo without wts.json; then start servers the usual way.
+Proxy mode (wts_status says "mode: proxy"): here you DO start your worktree's dev servers yourself, on a free port
+inside the service's target range shown by wts_status (Vite picks the next free port by itself). Then call wts_switch:
+it only points the fixed ports at your worktree, stops nothing, and reports services that are not running yet.`;
 
 const pathArg = { path: z.string().optional().describe("Worktree path; defaults to the agent's working directory") };
 
@@ -41,7 +44,7 @@ export function createServer(cwd = process.cwd()): McpServer {
       run(where(path), async (ctx) => {
         const snap = snapshot(ports(ctx));
         const statuses = inspect(ctx, snap.listeners, snap.procs, ctx.store.readState());
-        status(ctx);
+        await status(ctx);
         return {
           worktree: ctx.current,
           lock: ctx.store.readLock(),
@@ -65,8 +68,8 @@ export function createServer(cwd = process.cwd()): McpServer {
     },
     ({ path }) =>
       run(where(path), async (ctx) => {
-        await switchTo(ctx, false);
-        return { worktree: ctx.current, ports: ports(ctx) };
+        const result = await switchTo(ctx, false);
+        return { worktree: ctx.current, ports: ports(ctx), ...(result ?? {}) };
       }),
   );
 

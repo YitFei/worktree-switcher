@@ -2,9 +2,8 @@
 // servers themselves or override a lock; they are pointed at wts_switch instead.
 // Exit 2 + stderr blocks the tool call (Claude Code shows stderr to the agent); exit 0 allows.
 // Any problem inside the guard allows: it must never break an agent's unrelated work.
-import fs from "node:fs";
 import path from "node:path";
-import { CONFIG_FILE } from "./config.js";
+import { loadConfig, type Mode } from "./config.js";
 import { worktreeRoot } from "./git.js";
 
 const DEV_SERVERS: RegExp[] = [
@@ -27,13 +26,16 @@ export function executableText(cmd: string): string {
     .replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""');
 }
 
-/** Why this command must not be run by an agent in a wts-managed worktree, or null. */
-export function checkCommand(raw: string): string | null {
+/**
+ * Why this command must not be run by an agent in a wts-managed worktree, or null.
+ * In proxy mode agents start their own dev servers, so only lock overrides are refused.
+ */
+export function checkCommand(raw: string, mode: Mode = "run"): string | null {
   const cmd = executableText(raw);
   if (FORCE.test(cmd)) {
     return "agents may not override a wts lock (--force). The user locked the dev servers on purpose: tell them instead.";
   }
-  if (DEV_SERVERS.some((re) => re.test(cmd))) {
+  if (mode === "run" && DEV_SERVERS.some((re) => re.test(cmd))) {
     return "this repo's dev servers are managed by wts (wts.json). Do not start them yourself: call the wts_switch MCP tool (or run `wts switch`) to run them from your worktree, and wts_status / wts_logs to inspect. If wts refuses, tell the user.";
   }
   return null;
@@ -45,11 +47,12 @@ export function commandDir(cmd: string, cwd: string): string {
   return m ? path.resolve(cwd, m[1].replace(/^["']|["']$/g, "")) : cwd;
 }
 
-function isManaged(dir: string): boolean {
+/** The wts mode of the worktree containing `dir`, or null when it has no (valid) wts.json. */
+function modeOf(dir: string): Mode | null {
   try {
-    return fs.existsSync(path.join(worktreeRoot(dir), CONFIG_FILE));
+    return loadConfig(worktreeRoot(dir)).mode;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -60,12 +63,14 @@ interface HookInput {
 }
 
 /** Decision for one PreToolUse event: exit code + message. */
-export function decide(input: HookInput, managed: (dir: string) => boolean = isManaged): { code: 0 | 2; message?: string } {
+export function decide(input: HookInput, mode: (dir: string) => Mode | null = modeOf): { code: 0 | 2; message?: string } {
   if (input.tool_name !== "Bash" && input.tool_name !== "PowerShell") return { code: 0 };
   const cmd = input.tool_input?.command;
   if (typeof cmd !== "string") return { code: 0 };
-  const reason = checkCommand(cmd);
-  if (!reason || !managed(commandDir(cmd, input.cwd ?? process.cwd()))) return { code: 0 };
+  if (!checkCommand(cmd)) return { code: 0 }; // cheap text check first: no git / config read for most commands
+  const m = mode(commandDir(cmd, input.cwd ?? process.cwd()));
+  const reason = m ? checkCommand(cmd, m) : null;
+  if (!reason) return { code: 0 };
   return { code: 2, message: `Blocked by wts: ${reason}` };
 }
 

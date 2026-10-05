@@ -3,6 +3,7 @@ import { describe, isAlive, type Procs } from "../owner.js";
 import { killTree, listeners, snapshot } from "../platform/win.js";
 import { checkLock, type State } from "../state.js";
 import { inspect, label, ports, sleep, type CtxWithConfig, type PortStatus } from "../context.js";
+import { clearSelection } from "./select.js";
 
 const FREE_TIMEOUT_MS = 15_000;
 
@@ -30,6 +31,7 @@ export async function stopOwned(ctx: CtxWithConfig, statuses: PortStatus[], proc
 }
 
 export async function stop(ctx: CtxWithConfig, force: boolean): Promise<void> {
+  if (ctx.config.mode === "proxy") return clearSelection(ctx, force);
   checkLock(ctx.store.readLock(), ctx.current, force);
   const snap = snapshot(ports(ctx));
   const state = ctx.store.readState();

@@ -10,6 +10,7 @@ import { Widget, type WidgetCommand, type WidgetKind, type WidgetState } from ".
 import { lock, unlock } from "./lock.js";
 import { stop } from "./stop.js";
 import { switchTo } from "./switch.js";
+import { repoForwarder, type Forwarder } from "../proxy.js";
 
 const POLL_MS = 500;
 const TRAY_REFRESH_MS = 10_000;
@@ -58,7 +59,7 @@ export async function watch(opts: WatchOptions): Promise<void> {
   console.log(`watching ${sources.map((s) => s.name).join(" + ")}; switch after ${opts.delaySec}s on the same worktree; Ctrl+C to stop`);
 
   const w = new Watcher(opts.ui === "none" ? null : new Widget(opts.ui));
-  w.startWidget();
+  await w.start();
 
   const last = new Map<string, string | null>();
   const debouncer = new Debouncer(opts.delaySec * 1000);
@@ -91,6 +92,8 @@ class Watcher {
   private lastRefresh = 0;
   private notifyId = 0;
   private owner: string | null = null;
+  /** Proxy-mode repos: one forwarder each, keyed by the repo's state dir. */
+  private readonly proxies = new Map<string, Forwarder>();
 
   constructor(private readonly widget: Widget | null) {
     try {
@@ -100,10 +103,21 @@ class Watcher {
     }
   }
 
-  startWidget(): void {
+  async start(): Promise<void> {
+    if (this.repo) await this.ensureProxy(this.repo);
     if (!this.widget) return;
     this.widget.start({ label: "starting…", tooltip: "wts: starting…", color: "gray", locked: false, worktrees: [] });
     this.refresh();
+  }
+
+  /** Proxy mode: make sure this watch forwards the repo's fixed ports. */
+  private async ensureProxy(ctx: CtxWithConfig): Promise<void> {
+    if (ctx.config.mode !== "proxy" || this.proxies.has(ctx.store.dir)) return;
+    const fwd = repoForwarder(ctx, (m) => console.log(`proxy: ${m}`));
+    this.proxies.set(ctx.store.dir, fwd);
+    await fwd.start();
+    const list = Object.entries(ctx.config.services).map(([n, s]) => `${n} :${s.port}`).join(", ");
+    console.log(`proxy: forwarding ${list} for ${path.basename(ctx.current)}'s repo`);
   }
 
   /** Called every poll: handle widget clicks, refresh the widget now and then. */
@@ -125,9 +139,11 @@ class Watcher {
     }
     this.repo = ctx;
     console.log(`focus on ${label(ctx.current, ctx.current)}`);
+    await this.ensureProxy(ctx);
     this.refresh("switching", `→ ${path.basename(ctx.current)}…`);
     try {
       await switchTo(ctx, false);
+      await this.proxies.get(ctx.store.dir)?.rediscover();
       this.refresh();
     } catch (e) {
       console.log(`not switched: ${(e as Error).message}`);
@@ -171,6 +187,7 @@ class Watcher {
   }
 
   private state(repo: CtxWithConfig, phase?: "switching", text?: string): WidgetState {
+    if (repo.config.mode === "proxy") return this.proxyState(repo, phase, text);
     const portList = ports(repo).map((p) => `:${p}`).join(" ");
     const snap = snapshot(ports(repo));
     const statuses = inspect(repo, snap.listeners, snap.procs, repo.store.readState());
@@ -196,6 +213,29 @@ class Watcher {
     const complete = owners.length === 1 && statuses.every((s) => s.pid !== null);
     const name = owners.length === 1 ? path.basename(ownerPath!) : "mixed worktrees";
     return { ...base, label: `${name}${lockMark}`, tooltip: `wts: ${name}${locked} · ${portList}`, color: complete ? "green" : "red" };
+  }
+
+  /** Proxy mode: who the fixed ports forward to, from the forwarder's last discovery (no extra query). */
+  private proxyState(repo: CtxWithConfig, phase?: "switching", text?: string): WidgetState {
+    const selected = repo.store.readState()?.owner ?? null;
+    const lockInfo = repo.store.readLock();
+    this.owner = selected;
+    const worktrees = repo.worktrees
+      .filter((wt) => fs.existsSync(path.join(wt, CONFIG_FILE)))
+      .map((wt) => ({ name: path.basename(wt), path: wt, active: !!selected && normPath(wt) === normPath(selected) }));
+    const base = { locked: !!lockInfo, worktrees };
+    const lockMark = lockInfo ? " 🔒" : "";
+    const locked = lockInfo ? ` · locked by ${path.basename(lockInfo.worktree)}` : "";
+    if (phase === "switching") return { ...base, label: text ?? "switching…", tooltip: `wts: ${text}`, color: "yellow" };
+    if (!selected) return { ...base, label: `none selected${lockMark}`, tooltip: `wts proxy: no worktree selected${locked}`, color: "gray" };
+    const name = path.basename(selected);
+    const ports = this.proxies.get(repo.store.dir)?.portsFor(selected) ?? {};
+    const missing = Object.keys(ports).filter((s) => ports[s] === null);
+    const routes = Object.entries(repo.config.services).map(([s, svc]) => `${s} ${svc.port}→${ports[s] ?? "-"}`).join(", ");
+    if (missing.length > 0) {
+      return { ...base, label: `${name}${lockMark}`, tooltip: `wts: ${name} not running ${missing.join(", ")}${locked}`, color: "red" };
+    }
+    return { ...base, label: `${name}${lockMark}`, tooltip: `wts: ${name} · ${routes}${locked}`, color: "green" };
   }
 }
 
