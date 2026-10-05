@@ -321,7 +321,12 @@ In proxy mode each worktree gets a stable **assigned port** per service, inside 
   - The project's worktrees; click one to switch to it.
   - The routes, for example `:5173 ──→ :5175  web`: green when the route works, red when it does not.
   - Each worktree's ports. `:5176?` means the port is assigned but nothing is running on it.
-  - ↻ Restart, Auto-switch, Show all projects, Flash on switch, Lock / Unlock, Stop, Exit.
+  - ↻ Restart, and **Logs** (run mode): a terminal window that follows every server's output live
+    (`wts logs -f`), since wts runs the servers in the background.
+  - Lock / Unlock, Stop.
+  - **Settings ▸** Auto-switch (follow Orca), Show all projects, Flash on switch.
+  - Exit.
+  - Hover any item for what it does.
 - **↻**
   - Run mode: restarts the running worktree's servers.
   - Proxy mode: re-detects the servers and resets connections. To restart your own server, use its terminal.

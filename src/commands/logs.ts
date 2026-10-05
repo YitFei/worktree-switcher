@@ -21,6 +21,16 @@ export function tail(file: string, n: number): string[] {
   return lines.slice(-n);
 }
 
+/**
+ * The `cmd /s /c` command line that opens a new console window following every service log:
+ * `start "<title>" "<node>" "<cli.js>" logs -f`. Quotes and cmd metacharacters in the title are
+ * dropped (it is display text only).
+ */
+export function logWindowCommand(title: string, node: string, cli: string): string {
+  const safe = title.replace(/["^&|<>%]/g, "");
+  return `start "${safe}" "${node}" "${cli}" logs -f`;
+}
+
 export async function logs(ctx: CtxWithConfig, service: string | undefined, n: number, follow: boolean): Promise<void> {
   const names = service ? [service] : Object.keys(ctx.config.services);
   for (const name of names) {

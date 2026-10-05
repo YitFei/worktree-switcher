@@ -7,6 +7,8 @@ All notable changes are listed here. The format follows
 ## [Unreleased]
 
 ### Added
+- Floating button menu: **Logs** (run mode) opens a terminal window that follows every
+  server's output live; settings grouped under **Settings ▸**; every item explains itself on hover.
 - README screenshots of the floating button and its menu (not shipped in the npm package).
 
 ## [0.1.1] - 2026-10-05

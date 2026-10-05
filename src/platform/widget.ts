@@ -25,6 +25,10 @@ export interface WidgetState {
   showAll: boolean;
   /** What the restart button does here (run mode: restart; proxy mode: reconnect). */
   restartTip: string;
+  /** What Stop does here (run mode: stop the servers; proxy mode: clear the selection). */
+  stopTip: string;
+  /** Run mode: show "Logs" (wts keeps the server output in log files). Proxy mode: you see it in your own terminals. */
+  logs: boolean;
   /** Shown once as a popup; a new id shows a new popup. */
   notify?: { id: number; title: string; text: string };
   /** Setting: flash the button when another worktree takes over the ports. */
@@ -49,7 +53,7 @@ export interface MenuProject {
 
 export type WidgetCommand =
   | { action: "switch"; path: string }
-  | { action: "lock" | "unlock" | "stop" | "exit" | "restart" | "auto" | "manual" | "showall" | "showcurrent" | "flashon" | "flashoff" };
+  | { action: "lock" | "unlock" | "stop" | "exit" | "restart" | "auto" | "manual" | "showall" | "showcurrent" | "flashon" | "flashoff" | "logs" };
 
 /** NotifyIcon.Text throws above 63 characters on .NET Framework. */
 export function fitTooltip(text: string): string {
@@ -160,6 +164,7 @@ $PosFile = __POS__
 $ParentPid = __PARENT__
 $colors = @{ green = '#2EA043'; yellow = '#D29922'; red = '#DA3633'; gray = '#8B949E' }
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
+$menu.ShowItemToolTips = $true
 $script:auto = $false
 
 function Send-Cmd($action, $path) {
@@ -203,30 +208,57 @@ function Build-Menu($s) {
     }
   }
   if (@($s.projects).Count -gt 0) { [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) }
+  # Actions
   $r = $menu.Items.Add([string][char]0x21BB + ' Restart')
   $r.ToolTipText = $s.restartTip
   $r.add_Click({ Send-Cmd 'restart' })
+  if ($s.logs) {
+    $lg = $menu.Items.Add('Logs')
+    $lg.ToolTipText = 'Open a terminal window that follows every server''s output live (wts logs -f)'
+    $lg.add_Click({ Send-Cmd 'logs' })
+  }
+  [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+  if ($s.locked) {
+    $lk = $menu.Items.Add('Unlock')
+    $lk.ToolTipText = 'Let other worktrees and agents switch or stop these servers again'
+    $lk.add_Click({ Send-Cmd 'unlock' })
+  } else {
+    $lk = $menu.Items.Add('Lock')
+    $lk.ToolTipText = 'Keep the running worktree: other worktrees and agents cannot switch or stop it until you unlock'
+    $lk.add_Click({ Send-Cmd 'lock' })
+  }
+  $st = $menu.Items.Add('Stop')
+  $st.ToolTipText = $s.stopTip
+  $st.add_Click({ Send-Cmd 'stop' })
+  [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+
+  # Settings (remembered in ~/.wts/watch.json)
+  $set = New-Object System.Windows.Forms.ToolStripMenuItem 'Settings'
+  $set.ToolTipText = 'Preferences for this button, remembered across restarts'
+  $set.DropDown.ShowItemToolTips = $true
   $a = New-Object System.Windows.Forms.ToolStripMenuItem 'Auto-switch (follow Orca)'
   $a.Checked = [bool]$s.auto
+  $a.ToolTipText = 'Switch to the worktree you select in Orca (or with wts focus) after a few seconds. Off = switch only when you ask.'
   $a.add_Click({ if ($script:auto) { Send-Cmd 'manual' } else { Send-Cmd 'auto' } })
-  [void]$menu.Items.Add($a)
+  [void]$set.DropDownItems.Add($a)
   $all = New-Object System.Windows.Forms.ToolStripMenuItem 'Show all projects'
   $all.Checked = [bool]$s.showAll
   $script:showAll = [bool]$s.showAll
+  $all.ToolTipText = 'List the worktrees of every project in this menu, not only the current project'
   $all.add_Click({ if ($script:showAll) { Send-Cmd 'showcurrent' } else { Send-Cmd 'showall' } })
-  [void]$menu.Items.Add($all)
+  [void]$set.DropDownItems.Add($all)
   $fl = New-Object System.Windows.Forms.ToolStripMenuItem 'Flash on switch'
   $fl.Checked = [bool]$s.flashOnSwitch
   $script:flashOn = [bool]$s.flashOnSwitch
   $fl.ToolTipText = 'Flash this button when another worktree takes over the ports'
   $fl.add_Click({ if ($script:flashOn) { Send-Cmd 'flashoff' } else { Send-Cmd 'flashon' } })
-  [void]$menu.Items.Add($fl)
+  [void]$set.DropDownItems.Add($fl)
+  [void]$menu.Items.Add($set)
   [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
-  if ($s.locked) { [void]$menu.Items.Add('Unlock').add_Click({ Send-Cmd 'unlock' }) }
-  else { [void]$menu.Items.Add('Lock').add_Click({ Send-Cmd 'lock' }) }
-  [void]$menu.Items.Add('Stop').add_Click({ Send-Cmd 'stop' })
-  [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
-  [void]$menu.Items.Add('Exit wts watch').add_Click({ Send-Cmd 'exit' })
+
+  $ex = $menu.Items.Add('Exit wts watch')
+  $ex.ToolTipText = 'Close this button. Run-mode servers keep running; proxy-mode forwarding stops.'
+  $ex.add_Click({ Send-Cmd 'exit' })
 }
 
 $script:last = ''
