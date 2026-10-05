@@ -37,6 +37,8 @@ export interface MenuProject {
   mode?: string;
   /** Route lines for the current project, e.g. ":5273 ──→ :5276  frontend". */
   routes?: string[];
+  /** Per route line: ok = forwarding to a running server (green), bad = not running / port held (red), idle (gray). */
+  routeStates?: ("ok" | "bad" | "idle")[];
   /** row: the item's text in aligned columns (name padded + ports), shown in a monospace font. */
   worktrees: { name: string; path: string; active: boolean; row?: string }[];
 }
@@ -171,11 +173,17 @@ function Build-Menu($s) {
     $h.ForeColor = [System.Drawing.Color]::FromArgb(110, 110, 110)
     $h.ToolTipText = $p.path
     [void]$menu.Items.Add($h)
-    foreach ($line in @($p.routes)) {
-      if (-not $line) { continue }
-      $l = New-Object System.Windows.Forms.ToolStripLabel ('   ' + $line)
+    $routes = @($p.routes)
+    $states = @($p.routeStates)
+    for ($i = 0; $i -lt $routes.Count; $i++) {
+      if (-not $routes[$i]) { continue }
+      $l = New-Object System.Windows.Forms.ToolStripLabel ('   ' + $routes[$i])
       $l.Font = New-Object System.Drawing.Font('Consolas', 9.5)
-      $l.ForeColor = [System.Drawing.Color]::FromArgb(70, 110, 160)
+      $l.ForeColor = switch ($states[$i]) {
+        'ok'  { [System.Drawing.Color]::FromArgb(26, 127, 55) }
+        'bad' { [System.Drawing.Color]::FromArgb(207, 34, 46) }
+        default { [System.Drawing.Color]::FromArgb(120, 120, 120) }
+      }
       [void]$menu.Items.Add($l)
     }
     foreach ($w in $p.worktrees) {

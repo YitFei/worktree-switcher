@@ -304,7 +304,8 @@ class Watcher {
 
     const lockMark = lockInfo ? " 🔒" : "";
     const routes = alignRoutes(statuses.map((s) => [`:${s.port}`, "──", s.worktree ? path.basename(s.worktree) : s.pid !== null ? "another program" : "stopped", s.service]));
-    const base = { locked: !!lockInfo, projects: this.projectsMenu(repo, ownerPath, { routes }) };
+    const routeStates = statuses.map((s) => (s.worktree ? "ok" : s.pid !== null ? "bad" : "idle") as "ok" | "bad" | "idle");
+    const base = { locked: !!lockInfo, projects: this.projectsMenu(repo, ownerPath, { routes, routeStates }) };
     if (phase === "switching") return { ...base, label: text ?? "switching…", tooltip: `wts: ${text}`, color: "yellow" };
     if (unknown.length > 0) {
       const busy = unknown.map((s) => `:${s.port}`).join(" ");
@@ -328,6 +329,9 @@ class Watcher {
     const assigned = readPortMap(repo.store.dir);
     const now = selected ? fwd?.portsFor(selected) ?? {} : {};
     const mine = selected ? portsOf(assigned, selected) : {};
+    const routeStates = Object.entries(repo.config.services).map(([s, svc]) =>
+      (blocked.has(svc.port) ? "bad" : !selected ? "idle" : now[s] ? "ok" : "bad") as "ok" | "bad" | "idle",
+    );
     const routeLines = alignRoutes(
       Object.entries(repo.config.services).map(([s, svc]) => {
         if (blocked.has(svc.port)) return [`:${svc.port}`, "──✗", "held by another program", s];
@@ -345,7 +349,7 @@ class Watcher {
         .join(" ")
         .trimEnd();
     };
-    const base = { locked: !!lockInfo, projects: this.projectsMenu(repo, selected, { routes: routeLines, ports: portsOfWorktree }) };
+    const base = { locked: !!lockInfo, projects: this.projectsMenu(repo, selected, { routes: routeLines, routeStates, ports: portsOfWorktree }) };
     const lockMark = lockInfo ? " 🔒" : "";
     const locked = lockInfo ? ` · locked by ${path.basename(lockInfo.worktree)}` : "";
     if (phase === "switching") return { ...base, label: text ?? "switching…", tooltip: `wts: ${text}`, color: "yellow" };
@@ -372,7 +376,7 @@ class Watcher {
   private projectsMenu(
     repo: CtxWithConfig | null,
     active: string | null,
-    live: { routes?: string[]; ports?: (worktree: string) => string } = {},
+    live: { routes?: string[]; routeStates?: ("ok" | "bad" | "idle")[]; ports?: (worktree: string) => string } = {},
   ): MenuProject[] {
     const groups: MenuProject[] = [];
     const seen = new Set<string>();
@@ -409,7 +413,7 @@ class Watcher {
       const mode = modes[0];
       const odd = listed.filter((_, i) => modes[i] !== mode).map((i, k) => `${path.basename(i.path)}: ${modes[listed.indexOf(i)]}`);
       const header = odd.length > 0 ? `${mode} (${odd.join(", ")}!)` : mode;
-      groups.push({ name: path.basename(main?.path ?? cwd), path: main?.path ?? cwd, mode: header, ...(current ? { routes: live.routes } : {}), worktrees });
+      groups.push({ name: path.basename(main?.path ?? cwd), path: main?.path ?? cwd, mode: header, ...(current ? { routes: live.routes, routeStates: live.routeStates } : {}), worktrees });
     };
     if (repo) add(repo.current, path.dirname(repo.store.dir), active, true);
     if (this.showAll || !repo) {
