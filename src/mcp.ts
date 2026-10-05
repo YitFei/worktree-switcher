@@ -1,6 +1,7 @@
 // `wts mcp`: stdio MCP server so coding agents use wts instead of starting dev servers themselves.
 // The agent's CLI starts it with cwd = the agent's worktree. stdout is the MCP channel, so every
 // tool runs with console output captured into its result.
+import { VERSION } from "./version.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -60,7 +61,7 @@ const pathArg = { path: z.string().optional().describe("Worktree path; defaults 
 type Result = { content: { type: "text"; text: string }[]; structuredContent: Record<string, unknown>; isError?: boolean };
 
 export function createServer(cwd = process.cwd()): McpServer {
-  const server = new McpServer({ name: "worktree-switcher", version: "0.1.0" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "worktree-switcher", version: VERSION }, { instructions: INSTRUCTIONS });
   const where = (p?: string) => p ?? cwd;
 
   server.registerTool(

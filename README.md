@@ -82,6 +82,22 @@ It also prints the config snippet for Codex.
 Re-run `wts setup` after upgrading or moving the install. `wts setup --uninstall` removes both.
 Options: `--dry-run`, `--no-mcp`, `--no-hook`.
 
+### Updating
+
+```sh
+npm install -g worktree-switcher@latest
+wts --version
+```
+
+The MCP server is not a service that updates itself: each agent session starts `wts mcp` when the
+session starts and keeps that process. After an update:
+
+- start a new agent session, or reconnect in a running one (`/mcp` in Claude Code);
+- restart `wts watch` (menu → Exit, then `wts watch`).
+
+`wts setup` does not need to run again unless the install moved (for example from `npm link` to a
+global install). Release notes: [CHANGELOG.md](CHANGELOG.md).
+
 ### Registering the MCP server by hand
 
 `wts setup` is the recommended way. If you prefer to register the server yourself, install the

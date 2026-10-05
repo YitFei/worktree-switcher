@@ -15,6 +15,7 @@ import { assignedWithHints, runProxy } from "./commands/select.js";
 import { planPorts } from "./discover.js";
 import { proposeInit, writeInit } from "./init.js";
 import { setup } from "./commands/setup.js";
+import { VERSION } from "./version.js";
 
 const USAGE = `wts — switch which git worktree owns the repo's dev-server ports
 
@@ -40,6 +41,7 @@ Usage (run inside any worktree that has a wts.json):
                                  register the MCP server and the agent hook in Claude Code
   wts mcp                        MCP server (stdio) for coding agents
   wts hook                       Claude Code PreToolUse guard (reads the event on stdin)
+  wts --version                  the installed version
 
 --force overrides a lock held by another worktree. Processes that cannot be attributed
 to a worktree of this repo are never killed.`;
@@ -54,6 +56,7 @@ async function main(argv: string[]): Promise<void> {
       n: { type: "string", short: "n", default: "50" },
       follow: { type: "boolean", short: "f", default: false },
       help: { type: "boolean", short: "h", default: false },
+      version: { type: "boolean", short: "v", default: false },
       orca: { type: "boolean" },
       "no-orca": { type: "boolean", default: false },
       auto: { type: "boolean", default: false },
@@ -74,6 +77,10 @@ async function main(argv: string[]): Promise<void> {
   const [command, arg] = positionals;
   const cwd = process.cwd();
 
+  if (values.version) {
+    console.log(VERSION);
+    return;
+  }
   if (values.help || !command) {
     console.log(USAGE);
     return;

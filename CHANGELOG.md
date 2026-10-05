@@ -12,10 +12,13 @@ All notable changes are listed here. The format follows
 - Floating button: **Flash on switch** setting (menu, on by default). A moving gradient flashes
   twice when another worktree takes over the ports, whatever made the switch.
 - README: install with your AI agent, registering the MCP server by hand (Claude Code, Cursor /
-  VS Code, Codex), and a day-to-day guide per mode (proxy mode needs `wts watch` running).
+  VS Code, Codex), a day-to-day guide per mode (proxy mode needs `wts watch` running), and how
+  to update.
+- `wts --version`.
 
 ### Fixed
 - The build cleans `dist/` first, so stale files are never published.
+- The MCP server reports the installed version instead of a fixed "0.1.0".
 
 ## [0.1.0] - 2026-10-05
 
