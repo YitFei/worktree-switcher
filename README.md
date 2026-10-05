@@ -28,7 +28,7 @@ http://localhost:5173  ──────┼─▶ worktree fix/upload   (agent 
 ---
 
 ## Contents
-- [Requirements](#requirements) · [Install](#install) · [Quick start](#quick-start)
+- [Requirements](#requirements) · [Install](#install) · [Quick start](#quick-start) · [Using it in your project](#using-it-in-your-project)
 - [Run mode vs proxy mode](#run-mode-vs-proxy-mode) · [wts.json](#wtsjson)
 - [Commands](#commands) · [The floating button (`wts watch`)](#the-floating-button-wts-watch)
 - [Coding agents (MCP + hook)](#coding-agents-mcp--hook) · [Orca](#orca)
@@ -44,12 +44,23 @@ http://localhost:5173  ──────┼─▶ worktree fix/upload   (agent 
 
 ## Install
 
-From npm (once published):
+From npm:
 
 ```sh
 npm install -g worktree-switcher
 wts setup        # register the MCP server and the agent hook in Claude Code
 ```
+
+Then start a **new** agent session; MCP tools are loaded when a session starts.
+
+### Install with your AI agent
+
+You can also just tell your agent: *"Install this MCP server: https://github.com/YitFei/worktree-switcher"*.
+
+> **Agents installing this for a user:** run `npm install -g worktree-switcher`, then `wts setup`.
+> `wts setup` registers the MCP server **and** installs the hook; do not run `claude mcp add`
+> yourself instead. Then tell the user to start a new session so the `wts_*` tools load, and to
+> ask you to "set up wts" in their project (`wts_init`, after asking run or proxy mode).
 
 From source:
 
@@ -70,6 +81,33 @@ It also prints the config snippet for Codex.
 
 Re-run `wts setup` after upgrading or moving the install. `wts setup --uninstall` removes both.
 Options: `--dry-run`, `--no-mcp`, `--no-hook`.
+
+### Registering the MCP server by hand
+
+`wts setup` is the recommended way. If you prefer to register the server yourself, install the
+package globally first, then:
+
+```sh
+# Claude Code
+claude mcp add --scope user worktree-switcher -- wts mcp
+```
+
+```jsonc
+// Cursor, VS Code and other MCP clients (mcpServers / servers section of their config)
+{ "worktree-switcher": { "command": "wts", "args": ["mcp"] } }
+```
+
+```toml
+# Codex: ~/.codex/config.toml
+[mcp_servers.worktree-switcher]
+command = "wts"
+args = ["mcp"]
+```
+
+If a client cannot start `wts` on Windows (it is a `.cmd` file), use `cmd` with
+`["/c", "wts", "mcp"]` as the arguments. Registering by hand installs **no hook**: agents get the
+tools and the rules, but nothing blocks them from running `npm run dev` themselves. Add the hook
+with `wts setup --no-mcp`.
 
 ## Quick start
 
@@ -102,9 +140,10 @@ The repo's own `wts.json` runs them (run mode):
 }
 ```
 
-Try it:
+Try it (in a clone of this repository):
 
 ```sh
+git clone https://github.com/YitFei/worktree-switcher.git && cd worktree-switcher
 git worktree add ../wts-a
 git worktree add ../wts-b
 
@@ -118,17 +157,43 @@ To simulate real work, set `const COLOR = "red";` in one worktree's `examples/de
 run `wts restart` there; the other worktree keeps its own code. The demo README also shows the
 same demo in proxy mode.
 
-In your own project, you have two options:
+## Using it in your project
 
-- Ask your agent to **"set up wts"**. It will ask you which mode you want.
-- Or run it yourself:
+**1. Create `wts.json`.** Either ask your agent to **"set up wts"** (it asks you which mode, then
+calls `wts_init`), or run it yourself:
 
-  ```sh
-  wts init --mode run            # detects your dev servers and prints a proposed wts.json
-  wts init --mode run --write    # writes it
-  ```
+```sh
+wts init --mode run            # detects your dev servers and prints a proposed wts.json
+wts init --mode run --write    # writes it (use --mode proxy for proxy mode)
+```
 
-  Commit `wts.json` to your main branch so every worktree has it.
+**2. Commit `wts.json` to your main branch**, so every worktree (and every new one Orca creates)
+has it. A worktree without it is not managed by wts and does not appear in the menu.
+
+**3. Day to day.** It depends on the mode ([which one?](#run-mode-vs-proxy-mode)):
+
+*Run mode* (the default): wts starts and stops the servers.
+
+```sh
+cd <worktree you want to see> && wts switch    # starts its servers on the fixed ports
+cd <another worktree>         && wts switch    # stops the first one's servers, starts these
+wts restart                                    # restart after a change that needs it
+wts watch                                      # optional: the floating button, switch with a click
+```
+
+Agents use `wts_switch` / `wts_restart` instead of `npm run dev`; the hook blocks the latter.
+
+*Proxy mode*: you run the servers, wts forwards the fixed ports.
+
+```sh
+wts watch                         # FIRST, and keep it running: it holds the fixed ports (the proxy)
+cd <worktree> && wts port         # this worktree's assigned port(s) and the start command
+npm run dev -- --port 5175        # start the servers yourself, on the assigned ports
+wts switch                        # (or the button menu) forward the fixed ports to this worktree
+```
+
+Without a running `wts watch` (or `wts proxy`) nothing listens on the fixed ports in proxy mode.
+Agents ask `wts_port` for their ports and start their own servers there.
 
 ## Run mode vs proxy mode
 
@@ -237,7 +302,7 @@ In proxy mode each worktree gets a stable **assigned port** per service, inside 
   - The project's worktrees; click one to switch to it.
   - The routes, for example `:5173 ──→ :5175  web`: green when the route works, red when it does not.
   - Each worktree's ports. `:5176?` means the port is assigned but nothing is running on it.
-  - ↻ Restart, Auto-switch, Show all projects, Lock / Unlock, Stop, Exit.
+  - ↻ Restart, Auto-switch, Show all projects, Flash on switch, Lock / Unlock, Stop, Exit.
 - **↻**
   - Run mode: restarts the running worktree's servers.
   - Proxy mode: re-detects the servers and resets connections. To restart your own server, use its terminal.
@@ -249,9 +314,12 @@ In proxy mode each worktree gets a stable **assigned port** per service, inside 
 
 More about the button:
 
+- **Flash on switch** (on by default): when another worktree takes over the ports, the button
+  flashes a moving gradient twice. This happens however the switch was made: the menu,
+  `wts switch`, an agent, or Auto. Turn it off in the menu.
 - Drag it anywhere; it remembers its position.
 - It never takes keyboard focus.
-- Your choices (Auto, Show all projects) are saved in `~/.wts/watch.json`.
+- Your choices (Auto, Show all projects, Flash on switch) are saved in `~/.wts/watch.json`.
 - `--ui tray` shows a tray icon with the same menu instead; `--ui none` shows nothing.
 - One `wts watch` serves every project.
 

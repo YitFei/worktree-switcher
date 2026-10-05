@@ -6,6 +6,17 @@ All notable changes are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-05
+
+### Added
+- Floating button: **Flash on switch** setting (menu, on by default). A moving gradient flashes
+  twice when another worktree takes over the ports, whatever made the switch.
+- README: install with your AI agent, registering the MCP server by hand (Claude Code, Cursor /
+  VS Code, Codex), and a day-to-day guide per mode (proxy mode needs `wts watch` running).
+
+### Fixed
+- The build cleans `dist/` first, so stale files are never published.
+
 ## [0.1.0] - 2026-10-05
 
 The first public release. Windows only, Node 22+.
@@ -36,5 +47,6 @@ The first public release. Windows only, Node 22+.
   `--dry-run`, `--no-mcp`, `--no-hook`) and prints the Codex snippet.
 - A demo in `examples/demo`: a Node.js frontend and a Node.js backend, with no dependencies.
 
-[Unreleased]: https://github.com/YitFei/worktree-switcher/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/YitFei/worktree-switcher/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/YitFei/worktree-switcher/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/YitFei/worktree-switcher/releases/tag/v0.1.0

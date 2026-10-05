@@ -64,6 +64,8 @@ interface Prefs {
   auto?: boolean;
   /** Menu lists every project, not only the current one. */
   showAll?: boolean;
+  /** Flash the floating button when another worktree takes over the ports (default on). */
+  flash?: boolean;
 }
 
 export function loadPrefs(): Prefs {
@@ -85,6 +87,14 @@ export function loadAuto(): boolean {
 
 export function saveAuto(auto: boolean): void {
   savePrefs({ auto });
+}
+
+/**
+ * Did another worktree take over? `seen` is the last worktree that served (undefined before the
+ * first look). A stop, a restart of the same worktree, or the first look do not count.
+ */
+export function ownerChanged(seen: string | null | undefined, now: string | null): boolean {
+  return seen !== undefined && now !== null && normPath(now) !== (seen === null ? null : normPath(seen));
 }
 
 /**
@@ -140,6 +150,10 @@ class Watcher {
   private lastRefresh = 0;
   private notifyId = 0;
   private owner: string | null = null;
+  /** Last worktree seen serving (survives a stop), for the flash on switch. */
+  private seenOwner: string | null | undefined = undefined;
+  private flashId = 0;
+  private flashOnSwitch = loadPrefs().flash !== false;
   /** Proxy-mode repos: one forwarder each, keyed by the repo's state dir. */
   private readonly proxies = new Map<string, Forwarder>();
 
@@ -158,7 +172,7 @@ class Watcher {
   async start(): Promise<void> {
     if (this.repo) await this.ensureProxy(this.repo);
     if (!this.widget) return;
-    this.widget.start({ label: "starting…", tooltip: "wts: starting…", color: "gray", locked: false, projects: [], auto: this.auto, showAll: this.showAll, restartTip: "" });
+    this.widget.start({ label: "starting…", tooltip: "wts: starting…", color: "gray", locked: false, projects: [], auto: this.auto, showAll: this.showAll, restartTip: "", flashOnSwitch: this.flashOnSwitch });
     this.refresh();
   }
 
@@ -210,6 +224,11 @@ class Watcher {
     if (cmd.action === "showall" || cmd.action === "showcurrent") {
       this.showAll = cmd.action === "showall";
       savePrefs({ showAll: this.showAll });
+      return this.refresh();
+    }
+    if (cmd.action === "flashon" || cmd.action === "flashoff") {
+      this.flashOnSwitch = cmd.action === "flashon";
+      savePrefs({ flash: this.flashOnSwitch });
       return this.refresh();
     }
     if (cmd.action === "auto" || cmd.action === "manual") {
@@ -276,7 +295,7 @@ class Watcher {
     if (!this.widget) return;
     const n = notify ? { id: ++this.notifyId, ...notify } : undefined;
     if (!this.repo) {
-      this.widget.update({ label: "waiting", tooltip: "wts: waiting for a worktree with wts.json", color: "gray", locked: false, projects: this.projectsMenu(null, null), auto: this.auto, showAll: this.showAll, restartTip: this.restartTip(null), notify: n });
+      this.widget.update({ label: "waiting", tooltip: "wts: waiting for a worktree with wts.json", color: "gray", locked: false, projects: this.projectsMenu(null, null), auto: this.auto, showAll: this.showAll, restartTip: this.restartTip(null), notify: n, flashOnSwitch: this.flashOnSwitch, flash: this.flashId });
       return;
     }
     try {
@@ -285,10 +304,14 @@ class Watcher {
       // keep the previous context
     }
     const s = this.state(this.repo, phase, text);
-    this.widget.update({ ...s, auto: this.auto, showAll: this.showAll, restartTip: this.restartTip(this.repo), notify: n });
+    if (phase !== "switching") {
+      if (ownerChanged(this.seenOwner, this.owner) && this.flashOnSwitch) this.flashId++;
+      if (this.owner !== null || this.seenOwner === undefined) this.seenOwner = this.owner;
+    }
+    this.widget.update({ ...s, auto: this.auto, showAll: this.showAll, restartTip: this.restartTip(this.repo), notify: n, flashOnSwitch: this.flashOnSwitch, flash: this.flashId });
   }
 
-  private state(repo: CtxWithConfig, phase?: "switching", text?: string): Omit<WidgetState, "auto" | "restartTip" | "showAll"> {
+  private state(repo: CtxWithConfig, phase?: "switching", text?: string): Omit<WidgetState, "auto" | "restartTip" | "showAll" | "flashOnSwitch"> {
     if (repo.config.mode === "proxy") return this.proxyState(repo, phase, text);
     const portList = ports(repo).map((p) => `:${p}`).join(" ");
     const snap = snapshot(ports(repo));
@@ -318,7 +341,7 @@ class Watcher {
   }
 
   /** Proxy mode: who the fixed ports forward to, from the forwarder's last discovery (no extra query). */
-  private proxyState(repo: CtxWithConfig, phase?: "switching", text?: string): Omit<WidgetState, "auto" | "restartTip" | "showAll"> {
+  private proxyState(repo: CtxWithConfig, phase?: "switching", text?: string): Omit<WidgetState, "auto" | "restartTip" | "showAll" | "flashOnSwitch"> {
     const selected = repo.store.readState()?.owner ?? null;
     const lockInfo = repo.store.readLock();
     this.owner = selected;

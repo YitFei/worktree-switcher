@@ -49,7 +49,7 @@ State is shared by every worktree of a repo through the common git dir, so no da
 | `<git-common-dir>/wts/ports.json` | proxy mode: worktree → service → assigned port |
 | `<git-common-dir>/wts/logs/<service>.log` | run mode: output of the service command |
 | `~/.wts/repos.json` | projects with a wts.json that this machine has used |
-| `~/.wts/watch.json` | `{auto, showAll}`: the button's remembered choices |
+| `~/.wts/watch.json` | `{auto, showAll, flash}`: the button's remembered choices |
 | `~/.wts/focus.json` | written by `wts focus <path>` |
 | `~/.wts/float-pos.json` | the button's position |
 | `~/.wts/widget-<pid>.ps1`, `-state.json`, `-cmd.json` | the button's script and IPC files (removed on exit; stale ones are cleaned up) |
@@ -179,6 +179,10 @@ correctly) and started with `powershell -ExecutionPolicy Bypass -File`. Passing 
     `lock`, `stop`, `exit`, …) and node polls and deletes it.
 - The menu is a `ContextMenuStrip`. Because the form never activates, the menu does not close by
   itself on an outside click, so the script polls the mouse while the menu is open.
+- **Flash on switch.** After each refresh, watch compares the worktree that serves the ports with
+  the last one it saw (`ownerChanged`; a stop or a restart of the same worktree does not count).
+  On a change it bumps `flash` in the state; the script calls `WtsPill.Flash()`, which animates a
+  sliding gradient for 1.4 s on a 16 ms timer. The setting is `flash` in `~/.wts/watch.json`.
 - If the script cannot start, `wts watch` keeps running without a button.
 
 ## Agents

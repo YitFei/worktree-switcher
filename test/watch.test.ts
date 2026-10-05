@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
-import { Debouncer } from "../src/commands/watch.js";
+import { Debouncer, ownerChanged } from "../src/commands/watch.js";
 import { parseOrcaActive } from "../src/focus/orca.js";
 
 test("parseOrcaActive extracts the worktree path", () => {
@@ -80,4 +80,14 @@ test("route lines are aligned in columns", async () => {
   const col = (l: string, s: string) => l.indexOf(s);
   assert.equal(new Set(lines.map((l) => col(l, "──"))).size, 1, "arrows line up");
   assert.equal(new Set([col(lines[0], "api"), col(lines[1], "frontend"), col(lines[2], "web")]).size, 1, "service names line up");
+});
+
+test("flash on switch: only when another worktree takes over", () => {
+  const a = "C:/dev/MyApp-a";
+  const b = "C:/dev/MyApp-b";
+  assert.equal(ownerChanged(undefined, a), false, "the first look is not a switch");
+  assert.equal(ownerChanged(null, a), true, "stopped -> a worktree starts");
+  assert.equal(ownerChanged(a, b), true, "a -> b");
+  assert.equal(ownerChanged(a, "c:\\dev\\myapp-a"), false, "same worktree, other spelling (restart)");
+  assert.equal(ownerChanged(a, null), false, "a stop is not a switch");
 });

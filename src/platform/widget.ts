@@ -27,6 +27,10 @@ export interface WidgetState {
   restartTip: string;
   /** Shown once as a popup; a new id shows a new popup. */
   notify?: { id: number; title: string; text: string };
+  /** Setting: flash the button when another worktree takes over the ports. */
+  flashOnSwitch: boolean;
+  /** A new id flashes the floating button once. */
+  flash?: number;
 }
 
 export interface MenuProject {
@@ -45,7 +49,7 @@ export interface MenuProject {
 
 export type WidgetCommand =
   | { action: "switch"; path: string }
-  | { action: "lock" | "unlock" | "stop" | "exit" | "restart" | "auto" | "manual" | "showall" | "showcurrent" };
+  | { action: "lock" | "unlock" | "stop" | "exit" | "restart" | "auto" | "manual" | "showall" | "showcurrent" | "flashon" | "flashoff" };
 
 /** NotifyIcon.Text throws above 63 characters on .NET Framework. */
 export function fitTooltip(text: string): string {
@@ -211,6 +215,12 @@ function Build-Menu($s) {
   $script:showAll = [bool]$s.showAll
   $all.add_Click({ if ($script:showAll) { Send-Cmd 'showcurrent' } else { Send-Cmd 'showall' } })
   [void]$menu.Items.Add($all)
+  $fl = New-Object System.Windows.Forms.ToolStripMenuItem 'Flash on switch'
+  $fl.Checked = [bool]$s.flashOnSwitch
+  $script:flashOn = [bool]$s.flashOnSwitch
+  $fl.ToolTipText = 'Flash this button when another worktree takes over the ports'
+  $fl.add_Click({ if ($script:flashOn) { Send-Cmd 'flashoff' } else { Send-Cmd 'flashon' } })
+  [void]$menu.Items.Add($fl)
   [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
   if ($s.locked) { [void]$menu.Items.Add('Unlock').add_Click({ Send-Cmd 'unlock' }) }
   else { [void]$menu.Items.Add('Lock').add_Click({ Send-Cmd 'lock' }) }
@@ -221,6 +231,7 @@ function Build-Menu($s) {
 
 $script:last = ''
 $script:lastNotify = 0
+$script:lastFlash = 0
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 700
 $timer.add_Tick({
@@ -238,6 +249,10 @@ $timer.add_Tick({
   if ($s.notify -and $s.notify.id -ne $script:lastNotify) {
     $script:lastNotify = $s.notify.id
     Show-Notice $s.notify.title $s.notify.text
+  }
+  if ($s.flash -and $s.flash -ne $script:lastFlash) {
+    $script:lastFlash = $s.flash
+    Start-Flash
   }
 })
 `;
@@ -263,6 +278,7 @@ $ni.ContextMenuStrip = $menu
 function Apply-State($s) { $script:auto = [bool]$s.auto; $ni.Icon = $icons[$s.color]; $ni.Text = $s.tooltip }
 function Show-Notice($title, $text) { $ni.ShowBalloonTip(4000, $title, $text, 'Info') }
 function Close-Widget { $ni.Visible = $false }
+function Start-Flash { } # the tray icon has nothing to flash; the floating button does
 
 $timer.Start()
 [System.Windows.Forms.Application]::Run()
@@ -303,6 +319,11 @@ public class WtsPill : Form {
     Font small, glyph;
     Point down;
     bool pressed, dragging;
+    // Flash on switch: a gradient that sweeps across the pill and pulses twice.
+    const int FlashMs = 1400;
+    readonly Timer flashTimer = new Timer();
+    DateTime flashStart;
+    float flashT = -1f; // 0..1 while flashing, -1 otherwise
 
     public WtsPill(float k) {
         K = k;
@@ -320,7 +341,50 @@ public class WtsPill : Form {
         Cursor = Cursors.Hand;
         Height = S(32);
         tip.ShowAlways = true;
+        flashTimer.Interval = 16;
+        flashTimer.Tick += delegate {
+            flashT = (float)((DateTime.Now - flashStart).TotalMilliseconds / FlashMs);
+            if (flashT >= 1f) { flashT = -1f; flashTimer.Stop(); }
+            Invalidate();
+        };
         SetState(Color.Gray, "wts", false);
+    }
+
+    public void Flash() {
+        flashStart = DateTime.Now;
+        flashT = 0f;
+        flashTimer.Start();
+    }
+
+    void PaintFlash(Graphics g) {
+        // Two pulses that fade out, with the gradient sliding left to right.
+        double pulse = Math.Abs(Math.Sin(Math.PI * 2 * flashT)) * (1 - 0.4 * flashT);
+        int a = (int)(150 * pulse);
+        if (a <= 0) return;
+        Rectangle band = new Rectangle(0, 0, Math.Max(1, Width), Height);
+        using (LinearGradientBrush b = new LinearGradientBrush(band, Color.Black, Color.Black, LinearGradientMode.Horizontal)) {
+            ColorBlend cb = new ColorBlend();
+            cb.Colors = new Color[] {
+                Color.FromArgb(a, 46, 160, 67),   // green
+                Color.FromArgb(a, 56, 139, 253),  // blue
+                Color.FromArgb(a, 163, 113, 247), // purple
+                Color.FromArgb(a, 46, 160, 67),   // green again, so the tiled sweep has no seam
+            };
+            cb.Positions = new float[] { 0f, 0.35f, 0.7f, 1f };
+            b.InterpolationColors = cb;
+            b.WrapMode = WrapMode.Tile;
+            b.TranslateTransform(Width * 2f * flashT, 0);
+            g.FillRectangle(b, ClientRectangle);
+            // A brighter outline in the same gradient, inset so the pill's region does not clip it.
+            int w = S(2), d = Height - w;
+            using (GraphicsPath p = new GraphicsPath())
+            using (Pen pen = new Pen(b, w)) {
+                p.AddArc(w / 2, w / 2, d, d, 90, 180);
+                p.AddArc(Width - d - w / 2 - 1, w / 2, d, d, 270, 180);
+                p.CloseFigure();
+                g.DrawPath(pen, p);
+            }
+        }
     }
 
     public int S(int px) { return (int)Math.Round(px * K); }
@@ -387,6 +451,7 @@ public class WtsPill : Form {
             Rectangle h = hover == 0 ? rMain : hover == 1 ? rRestart : new Rectangle(rMode.Left, 0, Width - rMode.Left, Height);
             using (SolidBrush hb = new SolidBrush(Color.FromArgb(58, 60, 66))) g.FillRectangle(hb, h);
         }
+        if (flashT >= 0f) PaintFlash(g);
         using (SolidBrush b = new SolidBrush(dot)) g.FillEllipse(b, S(12), (Height - S(12)) / 2, S(12), S(12));
         Size s = TextRenderer.MeasureText(text, Font);
         TextRenderer.DrawText(g, text, Font, new Point(S(32), (Height - s.Height) / 2), ForeColor);
@@ -468,6 +533,7 @@ function Show-Notice($title, $text) {
   $notice.Show($text, $form, 0, -$form.S(70), 6000)
 }
 function Close-Widget { $form.Hide() }
+function Start-Flash { $form.Flash() }
 
 $timer.Start()
 [System.Windows.Forms.Application]::Run($form)
