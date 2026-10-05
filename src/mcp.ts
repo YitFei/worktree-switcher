@@ -13,6 +13,7 @@ import { switchTo } from "./commands/switch.js";
 import { stop } from "./commands/stop.js";
 import { tail } from "./commands/logs.js";
 import { discover, portOf } from "./discover.js";
+import { proposeInit, writeInit } from "./init.js";
 
 export const INSTRUCTIONS = `wts manages the dev servers of repos that have a wts.json: the ports are fixed and only one
 worktree of a repo runs them at a time. In such a repo:
@@ -22,10 +23,17 @@ worktree of a repo runs them at a time. In such a repo:
 - If a tool result says refused (locked by another worktree, or a port held by a program wts does not manage),
   stop and tell the user the reason. Do not work around it.
 - After a failed start, read wts_logs to find the cause.
-- Tools answer "not configured" in a repo without wts.json; then start servers the usual way.
+- Tools answer "not configured" in a repo without wts.json; then start servers the usual way, unless the user
+  asks to set up wts: then use wts_init. Before calling it, ASK the user which mode they want and never guess:
+  run = wts starts/stops the servers, one worktree at a time, less memory, switching restarts servers;
+  proxy = they start every worktree's servers themselves (dev server left open with hot reload), wts forwards the
+  fixed ports, switching is instant, all worktrees' servers keep running. Show the proposal, write only after
+  the user confirms.
 Proxy mode (wts_status says "mode: proxy"): here you DO start your worktree's dev servers yourself, on a free port
 inside the service's target range shown by wts_status (Vite picks the next free port by itself). Then call wts_switch:
 it only points the fixed ports at your worktree, stops nothing, and reports services that are not running yet.`;
+
+const NL = String.fromCharCode(10);
 
 const pathArg = { path: z.string().optional().describe("Worktree path; defaults to the agent's working directory") };
 
@@ -122,6 +130,44 @@ export function createServer(cwd = process.cwd()): McpServer {
         await stop(ctx, false);
         return {};
       }),
+  );
+
+  server.registerTool(
+    "wts_init",
+    {
+      description:
+        "Set up wts in a repo: detects the dev servers (package.json dev/start scripts, Vite config, .NET launchSettings) and proposes a wts.json for the mode the USER chose (ask them first: run or proxy). write:false (default) only shows the proposal; write:true writes wts.json after the user confirmed.",
+      inputSchema: {
+        ...pathArg,
+        mode: z.enum(["run", "proxy"]).describe("The mode the user chose. Ask; do not guess."),
+        write: z.boolean().default(false),
+        overwrite: z.boolean().default(false),
+      },
+    },
+    async ({ path, mode, write, overwrite }) => {
+      try {
+        const p = proposeInit(where(path), mode);
+        if (write) writeInit(p, overwrite);
+        const lines = [
+          write ? `wrote ${p.file}` : p.exists ? `proposal (${p.file} already exists; overwrite:true to replace it)` : `proposal for ${p.file} (not written yet)`,
+          ...p.services.map((s) => `  ${s.name}: ${s.framework} in ${s.dir}, port ${s.port ?? "?"} (from ${s.source})`),
+          "",
+          p.json || "(no config: nothing detected)",
+          ...p.notes.map((n) => `note: ${n}`),
+        ];
+        return {
+          content: [{ type: "text" as const, text: lines.join(NL) }],
+          structuredContent: { ok: true, written: write, file: p.file, exists: p.exists, mode, services: p.services, config: p.config, notes: p.notes },
+        };
+      } catch (e) {
+        const refused = e instanceof WtsError && e.exitCode === 2;
+        return {
+          content: [{ type: "text" as const, text: `${refused ? "REFUSED" : "FAILED"}: ${(e as Error).message}` }],
+          structuredContent: { ok: false, refused, reason: (e as Error).message },
+          isError: true,
+        };
+      }
+    },
   );
 
   return server;

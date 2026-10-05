@@ -12,6 +12,7 @@ import { focus } from "./commands/focus.js";
 import { serveMcp } from "./mcp.js";
 import { runHook } from "./hook.js";
 import { runProxy } from "./commands/select.js";
+import { proposeInit, writeInit } from "./init.js";
 
 const USAGE = `wts — switch which git worktree owns the repo's dev-server ports
 
@@ -28,6 +29,8 @@ Usage (run inside any worktree that has a wts.json):
                                  follow the worktree you are looking at and switch to it;
                                  shows a floating button (hover = status, click = menu)
   wts focus [path]               tell a running \`wts watch\` which worktree you are on
+  wts init --mode run|proxy [--write] [--overwrite]
+                                 detect the dev servers and propose (or write) a wts.json
   wts mcp                        MCP server (stdio) for coding agents
   wts hook                       Claude Code PreToolUse guard (reads the event on stdin)
 
@@ -49,6 +52,9 @@ async function main(argv: string[]): Promise<void> {
       delay: { type: "string", default: "3" },
       ui: { type: "string", default: "float" },
       "no-tray": { type: "boolean", default: false },
+      mode: { type: "string" },
+      write: { type: "boolean", default: false },
+      overwrite: { type: "boolean", default: false },
     },
   });
   const [command, arg] = positionals;
@@ -87,6 +93,21 @@ async function main(argv: string[]): Promise<void> {
       return focus(arg ?? cwd);
     case "proxy":
       return runProxy(loadContextWithConfig(cwd));
+    case "init": {
+      if (values.mode !== "run" && values.mode !== "proxy") throw new WtsError("--mode run or --mode proxy is required (your choice: see README)", 2);
+      const p = proposeInit(cwd, values.mode);
+      for (const s of p.services) console.log(`${s.name}: ${s.framework} in ${s.dir}, port ${s.port ?? "?"} (from ${s.source})`);
+      console.log("");
+      if (p.json) console.log(p.json);
+      for (const n of p.notes) console.log(`note: ${n}`);
+      if (values.write) {
+        writeInit(p, values.overwrite);
+        console.log(`wrote ${p.file}`);
+      } else if (p.json) {
+        console.log(p.exists ? `(${p.file} exists; --write --overwrite to replace it)` : "(not written; add --write)");
+      }
+      return;
+    }
     case "mcp":
       return serveMcp();
     case "hook":
