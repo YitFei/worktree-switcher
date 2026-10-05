@@ -72,17 +72,27 @@ export class Widget {
       .replace("__CMD__", psQuote(this.cmdFile))
       .replace("__POS__", psQuote(path.join(this.dir, "float-pos.json")))
       .replace("__PARENT__", String(process.pid));
+    // The script is too long for a command line (-EncodedCommand hits Windows' 32K limit and the
+    // spawn fails), so it runs from a file. UTF-8 with BOM: Windows PowerShell 5.1 reads it as UTF-8.
+    const scriptFile = path.join(this.dir, `widget-${process.pid}.ps1`);
+    fs.writeFileSync(scriptFile, "﻿" + script, "utf8");
     // Not detached: the widget dies with watch (and also exits when it sees watch is gone).
-    this.child = spawn(
-      "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-STA", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
-      { windowsHide: true, stdio: "ignore" },
-    );
-    this.child.on("error", () => {});
+    try {
+      this.child = spawn(
+        "powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass", "-File", scriptFile],
+        { windowsHide: true, stdio: "ignore" },
+      );
+      this.child.on("error", (e) => console.error(`wts: the floating button could not start: ${e.message}`));
+    } catch (e) {
+      // watch keeps working without its button (switching, proxy, MCP are unaffected)
+      console.error(`wts: the floating button could not start: ${(e as Error).message}`);
+    }
     process.on("exit", () => {
       this.child?.kill();
       fs.rmSync(this.stateFile, { force: true });
       fs.rmSync(this.cmdFile, { force: true });
+      fs.rmSync(scriptFile, { force: true });
     });
     for (const sig of ["SIGINT", "SIGTERM", "SIGBREAK"] as const) process.on(sig, () => process.exit(0));
   }
@@ -115,7 +125,7 @@ export class Widget {
 /** A watch that was killed (not stopped) cannot clean up its files; do it for it. */
 function removeStaleFiles(dir: string): void {
   for (const name of fs.readdirSync(dir)) {
-    const m = /^(?:tray|widget)-(\d+)-(state|cmd)\.json(\.tmp)?$/.exec(name);
+    const m = /^(?:tray|widget)-(\d+)(?:-(?:state|cmd)\.json(?:\.tmp)?|\.ps1)$/.exec(name);
     if (m && !isRunning(Number(m[1]))) fs.rmSync(path.join(dir, name), { force: true });
   }
 }
