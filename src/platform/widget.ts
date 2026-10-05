@@ -576,11 +576,20 @@ $notice.ToolTipIcon = 'Info'
 # the mouse is pressed outside the menu and the pill.
 $menuWatch = New-Object System.Windows.Forms.Timer
 $menuWatch.Interval = 50
+# Inside the menu or one of its open submenus (Logs, Settings), which open beside the menu.
+function In-Menu($items, $p) {
+  foreach ($i in $items) {
+    if ($i -is [System.Windows.Forms.ToolStripMenuItem] -and $i.DropDown.Visible) {
+      if ($i.DropDown.Bounds.Contains($p) -or (In-Menu $i.DropDownItems $p)) { return $true }
+    }
+  }
+  return $false
+}
 $menuWatch.add_Tick({
   if (-not $menu.Visible) { $menuWatch.Stop(); return }
   if ([System.Windows.Forms.Control]::MouseButtons -ne [System.Windows.Forms.MouseButtons]::None) {
     $p = [System.Windows.Forms.Cursor]::Position
-    if (-not $menu.Bounds.Contains($p) -and -not $form.Bounds.Contains($p)) { $menu.Close() }
+    if (-not $menu.Bounds.Contains($p) -and -not $form.Bounds.Contains($p) -and -not (In-Menu $menu.Items $p)) { $menu.Close() }
   }
 })
 
