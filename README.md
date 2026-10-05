@@ -1,9 +1,16 @@
 # wts — worktree dev-server switcher
 
-Every git worktree of a repo uses the same fixed dev ports, so only one can run at a time.
-`wts switch` makes the current worktree the one that runs: it stops the services of whichever
-worktree holds the ports, starts the services from here in the background, and waits until
-they listen. Windows only (MVP).
+Every git worktree of a repo uses the same fixed dev ports (the browser, OAuth redirects and the
+frontend's API proxy all point at them), so only one worktree can be "the app" at a time.
+wts decides which one, in one of two modes chosen in `wts.json`:
+
+- **run** — `wts switch` stops the worktree that runs now and starts this worktree's servers on the
+  fixed ports. One worktree runs at a time; wts starts and stops the servers.
+- **proxy** — you start each worktree's dev server yourself (e.g. `npm run dev`, left open with hot
+  reload) on its own port; wts holds the fixed ports and forwards them to the selected worktree.
+  Switching is instant and stops nothing; every worktree's servers keep running.
+
+Windows only (MVP).
 
 ## Install
 
@@ -26,13 +33,42 @@ npm install && npm run build && npm link
 `dir` is relative to the worktree root (default `.`). Use `--strictPort` (Vite) or the
 equivalent so a busy port fails instead of silently moving.
 
+### Proxy mode
+
+```json
+{
+  "mode": "proxy",
+  "services": {
+    "api": { "port": 5241, "targets": "5242-5299" },
+    "web": { "port": 5173, "targets": "5174-5199" }
+  }
+}
+```
+
+`port` is the fixed port the proxy holds; `targets` is where each worktree runs that service.
+Start the forwarder with `wts proxy` (or `wts watch`, which runs it too), then start your servers
+in each worktree on a port inside the range:
+
+- Vite: plain `npm run dev` (no `--strictPort`). 5173 is held by the proxy, so Vite takes the next
+  free port. The proxy holds the fixed port on 127.0.0.1, ::1, [::] and 0.0.0.0, so a server
+  started later cannot grab it whichever way it binds (the proxy only serves local connections).
+- .NET: `dotnet run --urls http://localhost:5243` (any port in the range).
+
+wts finds each worktree's server among the listeners in the range, by its command line / exe
+path or by its working directory. `wts switch` selects the worktree (lock respected) and reports
+services that are not running there; the browser keeps using the fixed ports; open connections
+are closed on a switch so the page reconnects to the new worktree. A selected worktree without a
+running server gets a 502 page that says what to start. Because the frontend's `/api` proxy
+targets the fixed API port, it reaches the selected worktree's backend too, with no code change.
+
 ## Commands
 
 | Command | |
 |---|---|
 | `wts status` | Owner of each configured port: worktree, pid, started by wts or not, lock |
-| `wts switch [--force]` | Stop the current owner, start this worktree's services, wait until ready |
-| `wts stop [--force]` | Stop services that belong to worktrees of this repo |
+| `wts switch [--force]` | run: stop the current owner, start this worktree's services, wait until ready · proxy: forward the fixed ports here |
+| `wts stop [--force]` | run: stop the repo's services · proxy: clear the selection (servers keep running) |
+| `wts proxy` | proxy mode: run the forwarder (also run by `wts watch`) |
 | `wts logs [service] [-n 50] [-f]` | Show / follow service logs |
 | `wts lock [--note "..."]` / `wts unlock` | Block other worktrees (agents) from `switch`/`stop` |
 | `wts watch [--orca] [--delay 3] [--ui float\|tray\|none]` | Follow the worktree you are looking at and switch to it (see below) |
@@ -97,9 +133,9 @@ tool timeout if needed (Claude Code: `MCP_TOOL_TIMEOUT` in ms).
 ### Enforce it: `wts hook`
 
 `wts mcp` makes agents prefer wts; `wts hook` makes it a rule. It is a Claude Code PreToolUse
-hook: in a worktree with `wts.json` it blocks `npm|pnpm|yarn|bun dev|start|serve`, `vite`,
+hook: in a run-mode worktree it blocks `npm|pnpm|yarn|bun dev|start|serve`, `vite`,
 `next dev`, `dotnet run`, `dotnet watch` and `wts … --force`, and tells the agent to use
-`wts_switch`. Elsewhere it allows everything; on any internal error it allows (never breaks an
+`wts_switch` (in proxy mode starting your own servers is the point, so only `--force` is blocked). Elsewhere it allows everything; on any internal error it allows (never breaks an
 agent). Your own terminal is not affected. Add to `~/.claude/settings.json`:
 
 ```json

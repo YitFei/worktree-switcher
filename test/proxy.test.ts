@@ -74,6 +74,11 @@ test("forwards to the selected worktree, switches instantly, 502 when its server
     assert.match(up, /^HTTP\/1\.1 101/);
     assert.match(up, /worktree-b$/);
 
+    b.close(); // the selected worktree's server stops; the cached discovery still lists it
+    await sleep(200);
+    const gone = await get(port, agent);
+    assert.equal(gone.status, 502, "a stopped server gives the 502 page, not a dropped connection");
+
     selected = "C:\\wt\\c"; // no server there
     await sleep(700);
     const r = await get(port, agent);
@@ -110,6 +115,29 @@ test("never steals a port another program already serves; takes it once it is fr
   } finally {
     fwd.stop();
     mine.close();
+  }
+});
+
+test("a dev server started after the proxy cannot take the fixed port, however it binds", async () => {
+  const port = await freePort();
+  const fwd = new Forwarder({
+    services: { web: { dir: ".", port, cmd: "", targets: { from: 1, to: 65535 } } },
+    selected: () => null,
+    discover: async () => [],
+    log: () => {},
+  });
+  await fwd.start();
+  try {
+    for (const host of ["::", "0.0.0.0", "127.0.0.1", "::1", "localhost", undefined]) {
+      const err = await new Promise<string>((resolve) => {
+        const s = net.createServer();
+        s.once("error", (e: NodeJS.ErrnoException) => resolve(e.code ?? "error"));
+        s.listen(port, host as string, () => s.close(() => resolve("bound")));
+      });
+      assert.equal(err, "EADDRINUSE", `listen(${port}, ${host ?? "default"}) must fail`);
+    }
+  } finally {
+    fwd.stop();
   }
 });
 

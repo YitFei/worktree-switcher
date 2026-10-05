@@ -60,9 +60,12 @@ export class Forwarder {
   }
 
   /**
-   * Take the fixed port on loopback, unless something already serves it. On Windows a bind to
-   * 127.0.0.1 succeeds even while another program listens on [::] / 0.0.0.0 — and then silently
-   * steals its traffic — so probe first and wait until the port is really free.
+   * Take the fixed port, unless something already serves it. Windows lets a specific-address bind
+   * (127.0.0.1, ::1) and wildcard binds (0.0.0.0, [::]) of the same port live side by side in
+   * different programs, and the specific one silently gets the loopback traffic. So: probe first
+   * and wait until the port is free; then hold all four, so a dev server started later — whichever way it
+   * binds — sees the port in use and moves on to its next port (into the targets range).
+   * The wildcard socket only serves loopback clients: nothing is exposed to the network.
    */
   private async bind(name: string, port: number, warned = false): Promise<void> {
     if (this.stopped) return;
@@ -71,8 +74,11 @@ export class Forwarder {
       setTimeout(() => void this.bind(name, port, true), this.deps.retryBindMs ?? RETRY_BIND_MS);
       return;
     }
-    for (const host of this.deps.hosts ?? ["127.0.0.1", "::1"]) {
-      const server = net.createServer((client) => void this.connect(name, client));
+    for (const host of this.deps.hosts ?? ["127.0.0.1", "::1", "::", "0.0.0.0"]) {
+      const server = net.createServer((client) => {
+        if (!isLoopback(client.remoteAddress)) return void client.destroy();
+        void this.connect(name, client);
+      });
       server.on("error", (e: NodeJS.ErrnoException) => {
         if (e.code !== "EADDRNOTAVAIL" && e.code !== "EAFNOSUPPORT") this.deps.log(`proxy ${name} :${port} (${host}): ${e.message}`);
       });
@@ -112,15 +118,28 @@ export class Forwarder {
     }
     if (port === null) return this.reject(name, worktree, client);
 
-    const upstream = net.connect({ port, host: "localhost" });
+    let upstream = await this.dial(port);
+    if (!upstream && worktree) {
+      await this.refresh(); // the server stopped or moved to another port
+      const again = portOf(this.found, name, worktree);
+      upstream = again === null ? null : await this.dial(again);
+    }
+    if (!upstream) return this.reject(name, worktree, client);
+    if (client.destroyed) return void upstream.destroy();
     this.track(upstream);
-    upstream.on("error", () => {
-      client.destroy();
-      void this.refresh(); // the server moved or stopped
-    });
+    upstream.on("error", () => client.destroy());
     client.on("error", () => upstream.destroy());
-    client.pipe(upstream).pipe(client);
+    client.pipe(upstream).pipe(client); // only now: the client's first bytes stay readable for reject()
     client.resume();
+  }
+
+  /** Connect to a local port; null when nothing accepts. */
+  private dial(port: number): Promise<net.Socket | null> {
+    return new Promise((resolve) => {
+      const s = net.connect({ port, host: "localhost" });
+      s.once("connect", () => resolve(s));
+      s.once("error", () => resolve(null));
+    });
   }
 
   /** No server to forward to: answer HTTP requests with a readable 502, close anything else. */
@@ -152,6 +171,10 @@ export class Forwarder {
     for (const s of this.sockets) s.destroy();
     this.sockets.clear();
   }
+}
+
+function isLoopback(addr: string | undefined): boolean {
+  return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
 }
 
 /** Does anything accept connections on this port (IPv4 or IPv6 loopback)? */

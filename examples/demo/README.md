@@ -33,6 +33,37 @@ In one worktree, change the code — set `const COLOR = "red";` in `examples/dem
 ask an agent to do it — then `wts switch` there: the page shows that worktree's change, the
 other worktree keeps its own code.
 
+## Proxy mode: you run the servers, wts forwards
+
+In each worktree set `wts.json` to
+
+```json
+{
+  "mode": "proxy",
+  "services": {
+    "api": { "port": 4241, "targets": "4242-4299" },
+    "web": { "port": 4173, "targets": "4174-4199" }
+  }
+}
+```
+
+then:
+
+```sh
+wts proxy                                   # one terminal: holds 4173 / 4241
+
+cd ../wts-a/examples/demo && node web.cjs   # takes 4174 (4173 is busy), like Vite would
+cd ../wts-a/examples/demo && node api.cjs   # takes 4242
+cd ../wts-b/examples/demo && node web.cjs   # 4175
+cd ../wts-b/examples/demo && node api.cjs   # 4243
+
+cd ../wts-a && wts switch    # http://localhost:4173 shows wts-a, instantly, nothing stopped
+cd ../wts-b && wts switch    # refresh: wts-b; wts-a's servers keep running
+wts status                   # every worktree's ports, and which one is selected
+```
+
+Stop wts-b's `web.cjs` and refresh: the proxy shows a page saying which server to start.
+
 ## Then
 
 - **Auto-switch**: `wts watch` (add `--orca` in Orca) follows the worktree you are looking at;
