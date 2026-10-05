@@ -1,7 +1,7 @@
 {
-  "readyTimeoutSec": 30,
+  "mode": "proxy",
   "services": {
-    "api": { "dir": "examples/demo", "port": 4241, "cmd": "node api.cjs" },
-    "web": { "dir": "examples/demo", "port": 4173, "cmd": "node web.cjs" }
+    "api": { "port": 4241, "targets": "4242-4299" },
+    "web": { "port": 4173, "targets": "4174-4199" }
   }
 }
