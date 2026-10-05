@@ -1,6 +1,6 @@
 {
   "name": "worktree-switcher",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Run many git worktrees of one app on the same fixed dev ports: switch which worktree serves them (or proxy the ports to it), with a floating button and an MCP server for coding agents. Windows.",
   "keywords": [
     "git",
