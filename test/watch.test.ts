@@ -68,3 +68,16 @@ test("Auto/Manual is remembered; Manual is the default", async () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test("route lines are aligned in columns", async () => {
+  const { alignRoutes } = await import("../src/commands/watch.js");
+  const lines = alignRoutes([
+    [":5341", "──→", ":5344", "api"],
+    [":5273", "──→", "start on :5276", "frontend"],
+    [":80", "──✗", "held by another program", "web"],
+  ]);
+  for (const l of lines) console.log(`    |${l}|`);
+  const col = (l: string, s: string) => l.indexOf(s);
+  assert.equal(new Set(lines.map((l) => col(l, "──"))).size, 1, "arrows line up");
+  assert.equal(new Set([col(lines[0], "api"), col(lines[1], "frontend"), col(lines[2], "web")]).size, 1, "service names line up");
+});

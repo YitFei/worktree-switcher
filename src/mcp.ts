@@ -13,7 +13,7 @@ import { switchTo } from "./commands/switch.js";
 import { stop } from "./commands/stop.js";
 import { tail } from "./commands/logs.js";
 import { planPorts, portOf } from "./discover.js";
-import { assignedWithHints } from "./commands/select.js";
+import { assignedWithHints, fixedPortHolders, holderAdvice, mixedModes } from "./commands/select.js";
 import { CONFIG_FILE } from "./config.js";
 import { listWorktrees } from "./git.js";
 import fs from "node:fs";
@@ -41,7 +41,13 @@ Proxy mode (wts_status / wts_port say "mode: proxy"): here you DO start your wor
 - Your worktree has an assigned port per service: call wts_port (or wts_status) and start each server with the
   startHint it gives (e.g. npm run dev -- --port 5175 --strictPort), from your worktree.
 - Then call wts_switch: it points the fixed ports at your worktree, stops nothing, and reports services that are
-  not running yet. The user opens the usual URL (the fixed port).`;
+  not running yet. The user opens the usual URL (the fixed port).
+- Never change the app's own proxy or URL settings (e.g. Vite's /api target, .env API URLs) to point at your assigned
+  ports. The fixed API port forwards to the same worktree as the fixed frontend port, so frontend and API stay paired.
+  Assigned ports sit behind the proxy; they are not for the user to open.
+- If wts_status reports a fixed port held by something other than the wts proxy (fixedPortHolders), tell the user what
+  holds it and how to free it (its advice). Do not kill it yourself and do not work around it.
+- If wts_status reports warnings (e.g. a worktree whose wts.json is in another mode), pass them on to the user.`;
 
 const NL = String.fromCharCode(10);
 
@@ -75,11 +81,24 @@ export function createServer(cwd = process.cwd()): McpServer {
             runningOn: portOf(found, service, ctx.current),
             otherWorktrees: found.filter((f) => f.service === service && !samePath(f.worktree, ctx.current)).map((f) => ({ worktree: f.worktree, port: f.port })),
           }));
+          const holders = (await fixedPortHolders(ctx)).filter((h) => !h.holder?.isWts);
+          const warnings = mixedModes(ctx);
           console.log(`mode: proxy; selected: ${selected ?? "none"}${selected && samePath(selected, ctx.current) ? " (you)" : ""}`);
+          for (const h of holders) console.log(`PROBLEM: ${holderAdvice(h)}`);
+          for (const w of warnings) console.log(`warning: ${w}`);
           for (const s of services) {
             console.log(`${s.service}: fixed :${s.fixedPort} (held by the wts proxy), yours :${s.assignedPort} - ${s.runningOn ? `running on :${s.runningOn}` : `not running; start: ${s.startHint}`}`);
           }
-          return { mode: "proxy", worktree: ctx.current, selected, selectedIsYou: !!selected && samePath(selected, ctx.current), lock: ctx.store.readLock(), services };
+          return {
+            mode: "proxy",
+            worktree: ctx.current,
+            selected,
+            selectedIsYou: !!selected && samePath(selected, ctx.current),
+            lock: ctx.store.readLock(),
+            services,
+            fixedPortHolders: holders.map((h) => ({ service: h.service, port: h.port, heldBy: h.holder?.text ?? null, advice: holderAdvice(h) })),
+            warnings,
+          };
         }
         const snap = snapshot(ports(ctx));
         const statuses = inspect(ctx, snap.listeners, snap.procs, ctx.store.readState());

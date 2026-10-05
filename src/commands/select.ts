@@ -3,8 +3,10 @@
 import { planPorts, portOf, type Found } from "../discover.js";
 import { frameworkFor } from "../init.js";
 import { startHint } from "../ports.js";
-import { describe, normPath } from "../owner.js";
-import { snapshot } from "../platform/win.js";
+import { describeHolder, normPath, type Holder } from "../owner.js";
+import { rangeListeners } from "../platform/win.js";
+import { loadConfig } from "../config.js";
+import path from "node:path";
 import { repoForwarder } from "../proxy.js";
 import { checkLock } from "../state.js";
 import { label, ports, type CtxWithConfig } from "../context.js";
@@ -31,23 +33,60 @@ export function assignedWithHints(ctx: CtxWithConfig, mine: Record<string, numbe
   return out;
 }
 
+const NL = String.fromCharCode(10);
+
 const range = (ctx: CtxWithConfig, name: string) => {
   const t = ctx.config.services[name].targets!;
   return `${t.from}-${t.to}`;
 };
 
-/** Is a wts proxy (wts proxy / wts watch) listening on the fixed ports? Returns a hint otherwise. */
-function proxyState(ctx: CtxWithConfig): { running: boolean; hint?: string } {
-  const snap = snapshot(ports(ctx));
-  for (const [name, svc] of Object.entries(ctx.config.services)) {
-    const pid = snap.listeners.get(svc.port);
-    if (pid === undefined) return { running: false, hint: "no proxy is running: start `wts proxy` (or `wts watch`) in a terminal" };
-    const cmd = snap.procs.get(pid)?.cmd ?? "";
-    if (!/\b(proxy|watch)\b/.test(cmd) || !/wts|cli\.js/i.test(cmd)) {
-      return { running: false, hint: `${name} :${svc.port} is held by another program (${describe(pid, snap.procs)}); stop it so the proxy can take the port` };
-    }
+export interface PortHolder {
+  service: string;
+  port: number;
+  /** null = nothing listens. */
+  holder: Holder | null;
+}
+
+/** Who listens on each fixed port (the wts proxy, a worktree's server, a leftover, or another program). */
+export async function fixedPortHolders(ctx: CtxWithConfig): Promise<PortHolder[]> {
+  const services = Object.entries(ctx.config.services);
+  const listeners = await rangeListeners(services.map(([, s]) => ({ from: s.port, to: s.port })));
+  return services.map(([service, svc]) => {
+    const l = listeners.find((x) => x.port === svc.port);
+    return { service, port: svc.port, holder: l ? describeHolder(l, ctx.worktrees) : null };
+  });
+}
+
+/** What to do about a fixed port that is not held by the wts proxy, for people and agents. */
+export function holderAdvice(h: PortHolder): string {
+  if (!h.holder) return `${h.service} :${h.port} is free: no proxy is running. Start \`wts watch\` (or \`wts proxy\`) in a terminal.`;
+  const what = `${h.service} :${h.port} is held by ${h.holder.text}`;
+  if (h.holder.deleted) return `${what}. Ask the user to stop it (pid ${h.holder.text.match(/pid (\d+)/)?.[1]}) so the wts proxy can take the port.`;
+  if (h.holder.worktree) {
+    return `${what}, started on the fixed port instead of behind the proxy. Ask the user to stop it and start it again on that worktree's assigned port (wts port in ${path.basename(h.holder.worktree)}).`;
   }
-  return { running: true };
+  return `${what}. Ask the user to stop it so the wts proxy can take the port.`;
+}
+
+/** Is the wts proxy holding every fixed port? Returns advice otherwise. */
+async function proxyState(ctx: CtxWithConfig): Promise<{ running: boolean; hints: string[] }> {
+  const hints = (await fixedPortHolders(ctx)).filter((h) => !h.holder?.isWts).map(holderAdvice);
+  return { running: hints.length === 0, hints };
+}
+
+/** Worktrees whose wts.json is in another mode than the main checkout's (e.g. not merged yet). */
+export function mixedModes(ctx: CtxWithConfig): string[] {
+  const modes = ctx.worktrees.flatMap((wt) => {
+    try {
+      return [{ wt, mode: loadConfig(wt).mode }];
+    } catch {
+      return [];
+    }
+  });
+  const main = modes[0]?.mode ?? ctx.config.mode;
+  return modes
+    .filter((m) => m.mode !== main)
+    .map((m) => `${path.basename(m.wt)}'s wts.json is in ${m.mode} mode, the others ${main}: merge the main branch there`);
 }
 
 export async function selectWorktree(ctx: CtxWithConfig, force: boolean): Promise<SelectResult> {
@@ -63,8 +102,9 @@ export async function selectWorktree(ctx: CtxWithConfig, force: boolean): Promis
     targets[name] = port;
     console.log(`  ${name.padEnd(10)} :${svc.port} → ${port ? `:${port}` : assigned[name] ? `not running here — start it on :${assigned[name].port}:  ${assigned[name].startHint}` : `not running here — no free port left in ${range(ctx, name)}`}`);
   }
-  const proxy = proxyState(ctx);
-  if (proxy.hint) console.log(proxy.hint);
+  const proxy = await proxyState(ctx);
+  for (const h of proxy.hints) console.log(h);
+  for (const m of mixedModes(ctx)) console.log(`warning: ${m}`);
   const missing = Object.keys(targets).filter((n) => targets[n] === null);
   return { mode: "proxy", selected: ctx.current, targets, missing, assigned, proxyRunning: proxy.running };
 }
@@ -84,7 +124,9 @@ export async function proxyStatus(ctx: CtxWithConfig): Promise<void> {
   console.log(`mode:     proxy`);
   console.log(`lock:     ${lock ? `${label(lock.worktree, ctx.current)} since ${lock.time}${lock.note ? ` — ${lock.note}` : ""}` : "none"}`);
   console.log(`selected: ${selected ? label(selected, ctx.current) : "none"}`);
-  console.log(`proxy:    ${proxyState(ctx).hint ?? "running"}`);
+  const proxy = await proxyState(ctx);
+  console.log(`proxy:    ${proxy.running ? "running" : proxy.hints.join(NL + "          ")}`);
+  for (const m of mixedModes(ctx)) console.log(`warning:  ${m}`);
   for (const [name, svc] of Object.entries(ctx.config.services)) {
     console.log(`\n${name} :${svc.port}  (held by the proxy; worktrees run it on ${range(ctx, name)})`);
     if (assigned[name]) console.log(`  this worktree: :${assigned[name].port}  ->  ${assigned[name].startHint}`);

@@ -108,7 +108,7 @@ test("never steals a port another program already serves; takes it once it is fr
   try {
     await fwd.start();
     assert.equal((await get(port)).body, "other program", "the other program keeps its traffic");
-    assert.match(logs.join(" | "), /in use by another program/);
+    assert.match(logs.join(" | "), /held by another program/);
     await new Promise<void>((r) => other.close(() => r()));
     await sleep(600);
     assert.equal((await get(port)).body, "worktree-a", "proxy took over after the port was freed");

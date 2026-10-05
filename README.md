@@ -102,7 +102,9 @@ Floating button (Windows, default `--ui float`): an always-on-top pill `( ● de
 - **Name** — click (or right-click anywhere) for the menu: worktrees grouped by project (click to
   switch), the current project's routes (`:5273 ──→ :5276  frontend` in proxy mode, `:5273 ── demo2`
   in run mode) and each worktree's ports (`:5275?` = assigned, not running yet), then Restart,
-  Auto-switch, Lock/Unlock, Stop, Exit. The menu closes when you click elsewhere.
+  Auto-switch, Show all projects (default: only the current project; remembered), Lock/Unlock,
+  Stop, Exit. The menu closes when you click elsewhere. If a fixed port is held by something else
+  (e.g. a server left over from a removed worktree) the button turns red and names it.
 - **↻** — run mode: restart the running worktree's servers. Proxy mode: wts did not start your
   servers, so it re-detects them and resets connections; restart a server in its own terminal.
 - **Manual / Auto** — toggle.

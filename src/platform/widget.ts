@@ -21,6 +21,8 @@ export interface WidgetState {
   projects: MenuProject[];
   /** Auto: follow the worktree selected in Orca / wts focus. Manual: switch only on request. */
   auto: boolean;
+  /** Menu lists every project (not only the current one). */
+  showAll: boolean;
   /** What the restart button does here (run mode: restart; proxy mode: reconnect). */
   restartTip: string;
   /** Shown once as a popup; a new id shows a new popup. */
@@ -41,7 +43,7 @@ export interface MenuProject {
 
 export type WidgetCommand =
   | { action: "switch"; path: string }
-  | { action: "lock" | "unlock" | "stop" | "exit" | "restart" | "auto" | "manual" };
+  | { action: "lock" | "unlock" | "stop" | "exit" | "restart" | "auto" | "manual" | "showall" | "showcurrent" };
 
 /** NotifyIcon.Text throws above 63 characters on .NET Framework. */
 export function fitTooltip(text: string): string {
@@ -184,6 +186,11 @@ function Build-Menu($s) {
   $a.Checked = [bool]$s.auto
   $a.add_Click({ if ($script:auto) { Send-Cmd 'manual' } else { Send-Cmd 'auto' } })
   [void]$menu.Items.Add($a)
+  $all = New-Object System.Windows.Forms.ToolStripMenuItem 'Show all projects'
+  $all.Checked = [bool]$s.showAll
+  $script:showAll = [bool]$s.showAll
+  $all.add_Click({ if ($script:showAll) { Send-Cmd 'showcurrent' } else { Send-Cmd 'showall' } })
+  [void]$menu.Items.Add($all)
   [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
   if ($s.locked) { [void]$menu.Items.Add('Unlock').add_Click({ Send-Cmd 'unlock' }) }
   else { [void]$menu.Items.Add('Lock').add_Click({ Send-Cmd 'lock' }) }

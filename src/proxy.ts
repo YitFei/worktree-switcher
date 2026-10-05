@@ -7,6 +7,9 @@ import type { ServiceConfig } from "./config.js";
 import { listWorktrees } from "./git.js";
 import { discover, portOf, type Found } from "./discover.js";
 import { portsOf, readPortMap } from "./ports.js";
+import { rangeListeners } from "./platform/win.js";
+import { describeHolder } from "./owner.js";
+import { isUsableWorktree } from "./repos.js";
 import type { CtxWithConfig } from "./context.js";
 
 const POLL_MS = 500;
@@ -23,6 +26,8 @@ export interface ForwarderDeps {
   assignedPort?(service: string, worktree: string): number | undefined;
   hosts?: string[];
   retryBindMs?: number;
+  /** Say what holds a fixed port the proxy cannot take (for logs and the floating button). */
+  describeBlocker?(port: number): Promise<string>;
 }
 
 export class Forwarder {
@@ -33,6 +38,8 @@ export class Forwarder {
   private found: Found[] = [];
   private pending: Promise<void> | null = null;
   private stopped = false;
+  /** Fixed ports another program holds: port -> what holds it. */
+  private readonly blockedBy = new Map<number, string>();
 
   constructor(private readonly deps: ForwarderDeps) {}
 
@@ -55,6 +62,11 @@ export class Forwarder {
     const ports: Record<string, number | null> = {};
     for (const name of Object.keys(this.deps.services)) ports[name] = portOf(this.found, name, worktree);
     return ports;
+  }
+
+  /** Fixed ports the proxy cannot take yet, and what holds them. */
+  blocked(): Map<number, string> {
+    return this.blockedBy;
   }
 
   /** Every worktree's servers from the last discovery (for the menu; no new query). */
@@ -84,7 +96,11 @@ export class Forwarder {
   private async bind(name: string, port: number, warned = false): Promise<void> {
     if (this.stopped) return;
     if (await portAnswers(port)) {
-      if (!warned) this.deps.log(`port ${port} (${name}) is in use by another program; waiting for it to be free`);
+      if (!warned) {
+        const who = (await this.deps.describeBlocker?.(port).catch(() => undefined)) ?? "another program";
+        this.blockedBy.set(port, who);
+        this.deps.log(`port ${port} (${name}) is held by ${who}; waiting for it to be free`);
+      }
       setTimeout(() => void this.bind(name, port, true), this.deps.retryBindMs ?? RETRY_BIND_MS);
       return;
     }
@@ -99,6 +115,7 @@ export class Forwarder {
       server.listen(port, host);
       this.servers.push(server);
     }
+    this.blockedBy.delete(port);
     if (warned) this.deps.log(`port ${port} (${name}) is free now; forwarding`);
   }
 
@@ -225,6 +242,10 @@ export function repoForwarder(ctx: CtxWithConfig, log: (msg: string) => void): F
     },
     discover: () => discover(ctx.config.services, listWorktrees(ctx.current), readPortMap(ctx.store.dir)),
     assignedPort: (service, worktree) => portsOf(readPortMap(ctx.store.dir), worktree)[service],
+    describeBlocker: async (port) => {
+      const [l] = await rangeListeners([{ from: port, to: port }]);
+      return l ? describeHolder(l, listWorktrees(ctx.current).filter(isUsableWorktree)).text : "another program";
+    },
     log,
   });
 }
