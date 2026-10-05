@@ -1,0 +1,19 @@
+name: Feature request
+description: Suggest an idea or a new integration
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe your setup (services, ports, editor/agent tools) and where wts falls short.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like wts to do?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered

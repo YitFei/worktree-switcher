@@ -1,0 +1,43 @@
+name: Bug report
+description: Something does not work as described
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. wts.json (mode run/proxy) ...
+        2. wts switch in worktree ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Output of `wts status` (and the failing command)
+      description: Paths and process names help a lot. Remove anything private.
+      render: text
+  - type: textarea
+    id: wtsjson
+    attributes:
+      label: Your wts.json
+      render: json
+  - type: input
+    id: env
+    attributes:
+      label: Versions
+      placeholder: "wts 0.1.0, Node 22.x, Windows 11 24H2, Orca x.y (if used)"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [run mode, proxy mode, floating button / wts watch, MCP / agents, hook, wts setup / init, other]
