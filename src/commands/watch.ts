@@ -340,9 +340,10 @@ class Watcher {
       return Object.keys(repo.config.services)
         .map((s) => {
           const f = found.find((x) => x.service === s && normPath(x.worktree) === normPath(wt));
-          return (f ? `:${f.port}` : want[s] ? `:${want[s]}?` : "-").padStart(6);
+          return (f ? `:${f.port}` : want[s] ? `:${want[s]}?` : "-").padEnd(7);
         })
-        .join("  ");
+        .join(" ")
+        .trimEnd();
     };
     const base = { locked: !!lockInfo, projects: this.projectsMenu(repo, selected, { routes: routeLines, ports: portsOfWorktree }) };
     const lockMark = lockInfo ? " 🔒" : "";
@@ -395,11 +396,14 @@ class Watcher {
           return "invalid";
         }
       });
-      const worktrees = listed.map((i) => ({
-        name: i.main ? `${i.branch ?? "main"} (main)` : path.basename(i.path),
+      const names = listed.map((i) => (i.main ? `${i.branch ?? "main"} (main)` : path.basename(i.path)));
+      const width = Math.max(...names.map((n) => n.length));
+      const worktrees = listed.map((i, k) => ({
+        name: names[k],
         path: i.path,
         active: !!activePath && normPath(i.path) === normPath(activePath),
-        ...(current && live.ports ? { ports: live.ports(i.path) } : {}),
+        // name column padded, then this worktree's ports (current project, proxy mode)
+        row: current && live.ports ? `${names[k].padEnd(width)}   ${live.ports(i.path)}`.trimEnd() : names[k],
       }));
       // The main checkout's mode; worktrees that differ (not merged yet) are named in the header.
       const mode = modes[0];

@@ -37,8 +37,8 @@ export interface MenuProject {
   mode?: string;
   /** Route lines for the current project, e.g. ":5273 ──→ :5276  frontend". */
   routes?: string[];
-  /** ports: this worktree's ports, shown right-aligned (proxy mode). */
-  worktrees: { name: string; path: string; active: boolean; ports?: string }[];
+  /** row: the item's text in aligned columns (name padded + ports), shown in a monospace font. */
+  worktrees: { name: string; path: string; active: boolean; row?: string }[];
 }
 
 export type WidgetCommand =
@@ -174,17 +174,19 @@ function Build-Menu($s) {
     foreach ($line in @($p.routes)) {
       if (-not $line) { continue }
       $l = New-Object System.Windows.Forms.ToolStripLabel ('   ' + $line)
-      $l.Font = New-Object System.Drawing.Font('Consolas', 9)
+      $l.Font = New-Object System.Drawing.Font('Consolas', 9.5)
       $l.ForeColor = [System.Drawing.Color]::FromArgb(70, 110, 160)
       [void]$menu.Items.Add($l)
     }
     foreach ($w in $p.worktrees) {
       $prefix = if ($w.active) { [char]0x25CF + ' ' } else { [char]0x25CB + ' ' }
-      $item = $menu.Items.Add('    ' + $prefix + $w.name)
+      $text = if ($w.row) { $w.row } else { $w.name }
+      $item = $menu.Items.Add(' ' + $prefix + $text)
       $item.ToolTipText = $w.path
       $item.Tag = $w.path
-      if ($w.active) { $item.Font = New-Object System.Drawing.Font($item.Font, [System.Drawing.FontStyle]::Bold) }
-      if ($w.ports) { $item.ShortcutKeyDisplayString = $w.ports }
+      # Monospace so names and ports line up in columns (bold has the same width in Consolas).
+      $style = if ($w.active) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }
+      $item.Font = New-Object System.Drawing.Font('Consolas', 9.5, $style)
       $item.add_Click({ param($sender) Send-Cmd 'switch' $sender.Tag })
     }
   }
