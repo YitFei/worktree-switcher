@@ -159,7 +159,9 @@ without the button.
      switch is never undone.
 2. **Proxies.** It starts or stops a `Forwarder` for each known proxy-mode repo.
 3. **Widget state.** It builds the label, the colour, a tooltip and the menu: projects (the
-   current one, or all of them with *Show all projects*), worktrees, routes with their colour
+   current one, or all of them with *Show all projects*), worktrees (without the ones asleep in
+   Orca: listed in Orca's `worktreeMeta` but not in `activeWorktreeIdsOnShutdown`; the active
+   worktree always stays), routes with their colour
    (working / broken / idle) and each worktree's ports. Route rows are padded into columns
    (`alignRoutes`) and drawn in a monospace font.
 

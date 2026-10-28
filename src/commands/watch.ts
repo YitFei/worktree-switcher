@@ -5,7 +5,7 @@ import path from "node:path";
 import { CONFIG_FILE, loadConfig } from "../config.js";
 import { inspect, label, loadContext, loadContextWithConfig, ports, sleep, type CtxWithConfig } from "../context.js";
 import { readFocus } from "../focus/file.js";
-import { defaultOrcaDb, orcaReader } from "../focus/orca.js";
+import { defaultOrcaDb, orcaReader, orcaSleepingReader } from "../focus/orca.js";
 import { normPath } from "../owner.js";
 import { snapshot } from "../platform/win.js";
 import { Widget, type LogService, type WidgetCommand, type WidgetKind, type WidgetState } from "../platform/widget.js";
@@ -126,12 +126,14 @@ export async function watch(opts: WatchOptions): Promise<void> {
     { name: "wts focus", read: () => { const f = readFocus(); return f && f.time >= start ? f.worktree : null; } },
   ];
   const orcaDb = opts.orcaDb ?? defaultOrcaDb();
+  let sleeping: () => Set<string> | null = () => null;
   if (opts.orca === true || (opts.orca === undefined && fs.existsSync(orcaDb))) {
     sources.push({ name: "orca", read: await orcaReader(orcaDb) });
+    sleeping = await orcaSleepingReader(orcaDb);
   }
   if (opts.auto !== undefined) saveAuto(opts.auto);
 
-  const w = new Watcher(opts.ui === "none" ? null : new Widget(opts.ui), opts.auto ?? loadAuto());
+  const w = new Watcher(opts.ui === "none" ? null : new Widget(opts.ui), opts.auto ?? loadAuto(), sleeping);
   console.log(`following ${sources.map((s) => s.name).join(" + ")}; ${w.auto ? "Auto" : "Manual"} mode${w.auto ? ` (switch after ${opts.delaySec}s on the same worktree)` : " (switch from the button, wts switch or an agent)"}; Ctrl+C to stop`);
   await w.start();
 
@@ -177,6 +179,8 @@ class Watcher {
   constructor(
     private readonly widget: Widget | null,
     public auto: boolean,
+    /** Worktrees Orca has put to sleep; the menu leaves them out. */
+    private readonly sleeping: () => Set<string> | null = () => null,
     private showAll = loadPrefs().showAll === true,
   ) {
     try {
@@ -437,7 +441,8 @@ class Watcher {
   /**
    * Menu groups: the current project, plus — with "Show all projects" — every other project wts
    * has used on this machine (~/.wts/repos.json). Only worktrees with a wts.json; Orca's temp folders
-   * are skipped. The active mark of other projects comes from their saved state (no port query).
+   * and worktrees asleep in Orca are skipped (the active one always stays). The active mark of other
+   * projects comes from their saved state (no port query).
    */
   private projectsMenu(
     repo: CtxWithConfig | null,
@@ -446,6 +451,7 @@ class Watcher {
   ): MenuProject[] {
     const groups: MenuProject[] = [];
     const seen = new Set<string>();
+    const asleep = this.sleeping();
     const add = (cwd: string, commonDirPath: string, activePath: string | null, current: boolean) => {
       const key = normPath(commonDirPath);
       if (seen.has(key)) return;
@@ -457,7 +463,10 @@ class Watcher {
         return;
       }
       const main = infos.find((i) => i.main);
-      const listed = infos.filter((i) => isUsableWorktree(i.path) && fs.existsSync(path.join(i.path, CONFIG_FILE)));
+      const isActive = (p: string) => !!activePath && normPath(p) === normPath(activePath);
+      const listed = infos.filter(
+        (i) => isUsableWorktree(i.path) && fs.existsSync(path.join(i.path, CONFIG_FILE)) && (!asleep?.has(normPath(i.path)) || isActive(i.path)),
+      );
       if (listed.length === 0) return;
       const modes = listed.map((i) => {
         try {
@@ -471,7 +480,7 @@ class Watcher {
       const worktrees = listed.map((i, k) => ({
         name: names[k],
         path: i.path,
-        active: !!activePath && normPath(i.path) === normPath(activePath),
+        active: isActive(i.path),
         // name column padded, then this worktree's ports (current project, proxy mode)
         row: current && live.ports ? `${names[k].padEnd(width)}   ${live.ports(i.path)}`.trimEnd() : names[k],
       }));
