@@ -6,6 +6,8 @@ All notable changes are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-28
+
 ### Changed
 - Floating button menu: worktrees that Orca has put to sleep are left out. The worktree that runs
   (or is selected) always stays. `--no-orca` shows them all.
@@ -66,7 +68,8 @@ The first public release. Windows only, Node 22+.
   `--dry-run`, `--no-mcp`, `--no-hook`) and prints the Codex snippet.
 - A demo in `examples/demo`: a Node.js frontend and a Node.js backend, with no dependencies.
 
-[Unreleased]: https://github.com/YitFei/worktree-switcher/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/YitFei/worktree-switcher/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/YitFei/worktree-switcher/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/YitFei/worktree-switcher/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/YitFei/worktree-switcher/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/YitFei/worktree-switcher/releases/tag/v0.1.0
