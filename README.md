@@ -318,7 +318,8 @@ In proxy mode each worktree gets a stable **assigned port** per service, inside 
   - red: a server is missing, or something else holds a fixed port;
   - gray: stopped, or nothing selected.
 - **Name.** Click it (or right-click anywhere on the button) to open the menu:
-  - The project's worktrees; click one to switch to it.
+  - The project's worktrees; click one to switch to it. Worktrees asleep in Orca are left out
+    (the running one always stays); wake one in Orca to see it again.
   - The routes, for example `:5173 ──→ :5175  web`: green when the route works, red when it does not.
   - Each worktree's ports. `:5176?` means the port is assigned but nothing is running on it.
   - ↻ Restart, and **Logs ▸** (run mode): one entry per server, plus All. Each opens a terminal

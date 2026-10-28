@@ -6,6 +6,10 @@ All notable changes are listed here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Floating button menu: worktrees that Orca has put to sleep are left out. The worktree that runs
+  (or is selected) always stays. `--no-orca` shows them all.
+
 ## [0.1.2] - 2026-10-05
 
 ### Added

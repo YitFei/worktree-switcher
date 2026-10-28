@@ -21,7 +21,30 @@ test("Logs marks the service with the problem", () => {
   // another program holds the port
   assert.deepEqual(serviceHealth([{ service: "frontend", pid: 99, worktree: null }]), [{ name: "frontend", state: "bad", note: "port held by another program" }]);
 });
-import { parseOrcaActive } from "../src/focus/orca.js";
+import { parseOrcaActive, parseOrcaSleeping } from "../src/focus/orca.js";
+import { normPath } from "../src/owner.js";
+
+test("parseOrcaSleeping: known to Orca but not awake", () => {
+  const meta = JSON.stringify({
+    "u1::C:/Users/dev/projects/MyApp": {},
+    "u1::C:/Users/dev/orca/workspaces/MyApp/awake": {},
+    "u1::C:/Users/dev/orca/workspaces/MyApp/asleep": {},
+  });
+  const session = JSON.stringify({
+    activeWorktreeIdsOnShutdown: [
+      "u1::C:\\Users\\dev\\projects\\MyApp",
+      "u1::C:/Users/dev/orca/workspaces/MyApp/awake::workspace:abc",
+      "u2::C:/Users/dev/projects/other",
+    ],
+  });
+  assert.deepEqual([...parseOrcaSleeping(meta, session)!], [normPath("C:/Users/dev/orca/workspaces/MyApp/asleep")]);
+});
+
+test("parseOrcaSleeping returns null for missing or bad data", () => {
+  assert.equal(parseOrcaSleeping("{}", JSON.stringify({})), null);
+  assert.equal(parseOrcaSleeping("not json", JSON.stringify({ activeWorktreeIdsOnShutdown: [] })), null);
+  assert.equal(parseOrcaSleeping("null", JSON.stringify({ activeWorktreeIdsOnShutdown: [] })), null);
+});
 
 test("parseOrcaActive extracts the worktree path", () => {
   const payload = JSON.stringify({
